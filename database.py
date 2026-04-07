@@ -2,8 +2,8 @@ import streamlit as st
 import gspread
 import pandas as pd
 import os
+import json  # -> NEW: We need this to read the Streamlit Secret
 
-# We explicitly define all 20 columns needed to reconstruct the past!
 COLUMNS = [
     "Date", "Income Type", "Salary", "Side Hustle",
     "Housing", "Electricity", "Water", "Internet", "Groceries", "Business Ops",
@@ -14,10 +14,17 @@ COLUMNS = [
 @st.cache_resource
 def connect_to_sheets():
     try:
-        gc = gspread.service_account(filename='secrets.json')
+        # -> NEW: The Cloud vs Local Check
+        if "google_secret" in st.secrets:
+            # We are on Streamlit Cloud! Read the secret we formatted.
+            creds_dict = json.loads(st.secrets["google_secret"])
+            gc = gspread.service_account_from_dict(creds_dict)
+        else:
+            # We are on your Mac! Look for the physical file.
+            gc = gspread.service_account(filename='secrets.json')
+            
         sheet = gc.open("Smart Budget Database").sheet1
         
-        # Auto-create headers if the sheet is completely empty
         if not sheet.get_all_values():
             sheet.append_row(COLUMNS)
             
@@ -25,8 +32,10 @@ def connect_to_sheets():
     except FileNotFoundError:
         return None
     except Exception as e:
-        st.error("🚨 Connection failed.")
+        st.error(f"🚨 Connection failed: {e}")
         return None
+
+# ... (Keep all your save_local_fallback, save_snapshot, and load_history functions down here) ...
 
 def save_local_fallback(row_data):
     new_entry = pd.DataFrame([row_data], columns=COLUMNS)
