@@ -29,6 +29,10 @@ st.markdown("""
         border: none;
         padding: 0.5rem 1rem;
     }
+    html, body, [class*="st-"] {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
     </style>
     """, unsafe_allow_html=True)
 
