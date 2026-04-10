@@ -45,7 +45,7 @@ if not st.session_state.budget_auth:
 # --- 1. THE INCOME ENGINE (SIDEBAR) ---
 # ==========================================
 if "show_success" in st.session_state and st.session_state.show_success:
-    st.success("✅ Transactions Safely Synced to Cloud!")
+    st.success("✅ Dashboard Snapshot Safely Synced to Cloud!")
     st.session_state.show_success = False
 
 with st.sidebar:
@@ -71,25 +71,64 @@ with st.sidebar:
 
     side_hustle = st.number_input("Business / Side Hustle (₱)", min_value=0.0, step=1000.0, key="sh")
     base_income = base_salary + (side_hustle or 0)
-    st.success(f"**Baseline Income: ₱{base_income:,.2f}**")
+    st.success(f"**Total Monthly Income: ₱{base_income:,.2f}**")
 
 # ==========================================
-# --- 2. GLOBAL DATE RANGE FILTER ---
+# --- 2. DYNAMIC BUCKET ENGINE ---
 # ==========================================
 st.title("💸 Smart Finance Tracker")
+st.write("### 📅 Select Budget Cycle")
 
-col_filter, _ = st.columns([1, 2])
-with col_filter:
-    today = datetime.date.today()
-    first_day = today.replace(day=1)
-    last_day = today.replace(day=calendar.monthrange(today.year, today.month)[1])
+col_m, col_y, col_type, col_bucket = st.columns(4)
+today = datetime.date.today()
+
+with col_m:
+    month_names = list(calendar.month_name)[1:]
+    selected_month_name = st.selectbox("Month", options=month_names, index=today.month - 1)
+    selected_month = month_names.index(selected_month_name) + 1
     
-    selected_dates = st.date_input("📅 Dashboard Date Range (From - To)", value=(first_day, last_day))
+with col_y:
+    selected_year = st.selectbox("Year", options=[today.year - 1, today.year, today.year + 1], index=1)
+    
+with col_type:
+    cycle_type = st.selectbox("Cycle Type", ["Monthly", "Bi-Monthly", "Weekly"])
 
-if len(selected_dates) == 2:
-    start_date, end_date = selected_dates
-else:
-    start_date = end_date = selected_dates[0]
+_, last_day = calendar.monthrange(selected_year, selected_month)
+
+# Calculate buckets and the income divisor for correct math
+if cycle_type == "Monthly":
+    buckets = [("Full Month", datetime.date(selected_year, selected_month, 1), datetime.date(selected_year, selected_month, last_day))]
+    income_divisor = 1
+elif cycle_type == "Bi-Monthly":
+    buckets = [
+        ("1st Cutoff (1st - 15th)", datetime.date(selected_year, selected_month, 1), datetime.date(selected_year, selected_month, 15)),
+        (f"2nd Cutoff (16th - {last_day}th)", datetime.date(selected_year, selected_month, 16), datetime.date(selected_year, selected_month, last_day))
+    ]
+    income_divisor = 2
+elif cycle_type == "Weekly":
+    buckets = []
+    current_day = 1
+    week_num = 1
+    while current_day <= last_day:
+        end_day = min(current_day + 6, last_day)
+        buckets.append((f"Week {week_num} ({current_day} - {end_day})", datetime.date(selected_year, selected_month, current_day), datetime.date(selected_year, selected_month, end_day)))
+        current_day += 7
+        week_num += 1
+    income_divisor = len(buckets)
+
+with col_bucket:
+    bucket_names = [b[0] for b in buckets]
+    selected_bucket_name = st.selectbox("Select Specific Bucket", bucket_names)
+
+# Extract exact dates for the chosen bucket
+for b in buckets:
+    if b[0] == selected_bucket_name:
+        start_date = b[1]
+        end_date = b[2]
+        break
+
+# Divide the monthly income proportionally based on the selected bucket
+bucket_base_income = base_income / income_divisor
 
 # ==========================================
 # --- 3. FETCH & SCRUB CLOUD DATA ---
@@ -98,195 +137,178 @@ global_db = conn.read(worksheet="Sheet1", ttl=0).dropna(how="all")
 if "Username" not in global_db.columns:
     global_db = pd.DataFrame(columns=["Username", "Date", "Type", "Category", "Description", "Amount"])
 
-# THE FIX: Strip out Google timestamps and forced currency formatting
 global_db["Date"] = pd.to_datetime(global_db["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
-global_db["Amount"] = global_db["Amount"].astype(str).str.replace(r"[₱,\s]", "", regex=True)
+global_db["Amount"] = global_db["Amount"].astype(str).str.replace(r"[^\d.]", "", regex=True)
 global_db["Amount"] = pd.to_numeric(global_db["Amount"], errors="coerce").fillna(0.0)
 
 user_log = global_db[global_db["Username"] == st.session_state.username].copy()
 
-# Generate the filtered dataframe for the Analytics section
 if not user_log.empty:
     user_log["Date_Obj"] = pd.to_datetime(user_log["Date"], errors="coerce").dt.date
-    filtered_log = user_log[(user_log["Date_Obj"] >= start_date) & (user_log["Date_Obj"] <= end_date)]
+    cycle_log = user_log[(user_log["Date_Obj"] >= start_date) & (user_log["Date_Obj"] <= end_date)]
 else:
-    filtered_log = user_log
+    cycle_log = user_log
+
+def get_cycle_sum(cat):
+    val = cycle_log[cycle_log["Category"] == cat]["Amount"].sum()
+    return float(val) if val > 0 else 0.0
 
 # ==========================================
-# --- 4. STATEFUL TRANSACTION EDITOR ---
+# --- 4. THE STATIC CYCLE LEDGER ---
 # ==========================================
-st.subheader("🧾 Daily Transaction Editor")
+if st.session_state.get("loaded_date_range") != (start_date, end_date):
+    st.session_state["loaded_date_range"] = (start_date, end_date)
+    st.session_state["c_Hou"] = get_cycle_sum("Housing")
+    st.session_state["c_Ele"] = get_cycle_sum("Electricity")
+    st.session_state["c_Wat"] = get_cycle_sum("Water")
+    st.session_state["c_Int"] = get_cycle_sum("Internet")
+    st.session_state["c_Gro"] = get_cycle_sum("Groceries")
+    st.session_state["c_Bus"] = get_cycle_sum("Business Ops")
+    st.session_state["c_Car"] = get_cycle_sum("Car Payment")
+    st.session_state["c_Cre"] = get_cycle_sum("Credit Cards")
+    st.session_state["c_Sub"] = get_cycle_sum("Subscriptions")
+    st.session_state["c_Inv"] = get_cycle_sum("Investments")
+    st.session_state["c_Tra"] = get_cycle_sum("Transportation")
+    st.session_state["c_Lei"] = get_cycle_sum("Leisure")
+    st.session_state["c_Emg"] = get_cycle_sum("Emergency Spend")
+    st.session_state["c_Ext"] = get_cycle_sum("Extra Income")
 
-entry_date = st.date_input("📅 Select Date to Edit", datetime.date.today())
-date_str = entry_date.strftime("%Y-%m-%d")
+st.divider()
+st.subheader(f"🧾 {selected_bucket_name} Ledger")
 
-# Extract existing data for the selected day
-day_log = user_log[user_log["Date"] == date_str]
+col1, col2 = st.columns(2)
+with col1:
+    st.write("**🏡 Core Living**")
+    st.number_input("🏠 Rent / Mortgage", step=500.0, key="c_Hou")
+    st.number_input("⚡ Electricity", step=500.0, key="c_Ele")
+    st.number_input("💧 Water", step=100.0, key="c_Wat")
+    st.number_input("🌐 Internet", step=100.0, key="c_Int")
+    st.number_input("🛒 Groceries", step=500.0, key="c_Gro")
+    st.number_input("⚙️ Business Ops", step=500.0, key="c_Bus")
 
-def get_val(cat):
-    val = day_log[day_log["Category"] == cat]["Amount"].sum()
-    return float(val) if val > 0 else None
+with col2:
+    st.write("**💳 Debt, Subs & Lifestyle**")
+    st.number_input("🚘 Car Payment", step=1000.0, key="c_Car")
+    st.number_input("💳 Credit Cards", step=500.0, key="c_Cre")
+    st.number_input("📺 Subscriptions", step=100.0, key="c_Sub")
+    st.number_input("📈 Investments", step=500.0, key="c_Inv")
+    st.number_input("🚗 Gas & Auto", step=500.0, key="c_Tra")
+    st.number_input("🍔 Dining Out", step=500.0, key="c_Lei")
+    
+st.write("")
+st.write("**🚨 Unplanned & Extra**")
+c_ext1, c_ext2 = st.columns(2)
+with c_ext1:
+    st.number_input("🚨 Emergency Spend", step=500.0, key="c_Emg")
+with c_ext2:
+    st.number_input("💰 Extra / Unexpected Income", step=500.0, key="c_Ext")
 
-# THE FIX: Anchor values to session state so they survive "Enter" key presses
-if st.session_state.get("current_edit_date") != date_str:
-    st.session_state["current_edit_date"] = date_str
-    st.session_state["in_Hou"] = get_val("Housing")
-    st.session_state["in_Ele"] = get_val("Electricity")
-    st.session_state["in_Wat"] = get_val("Water")
-    st.session_state["in_Int"] = get_val("Internet")
-    st.session_state["in_Gro"] = get_val("Groceries")
-    st.session_state["in_Bus"] = get_val("Business Ops")
-    st.session_state["in_Car"] = get_val("Car Payment")
-    st.session_state["in_Cre"] = get_val("Credit Cards")
-    st.session_state["in_Sub"] = get_val("Subscriptions")
-    st.session_state["in_Inv"] = get_val("Investments")
-    st.session_state["in_Tra"] = get_val("Transportation")
-    st.session_state["in_Lei"] = get_val("Leisure")
-    st.session_state["in_Emg"] = get_val("Emergency Spend")
-    st.session_state["in_Ext"] = get_val("Extra Income")
+st.write("")
+if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_container_width=True):
+    form_cats = [
+        "Housing", "Electricity", "Water", "Internet", "Groceries", "Business Ops", 
+        "Car Payment", "Credit Cards", "Subscriptions", "Investments", "Transportation", 
+        "Leisure", "Emergency Spend", "Extra Income"
+    ]
+    
+    mask = ~((global_db["Username"] == st.session_state.username) & 
+             (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= start_date) & 
+             (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= end_date) & 
+             (global_db["Category"].isin(form_cats)))
+    cleaned_db = global_db[mask]
+    
+    new_rows = []
+    log_date_str = start_date.strftime("%Y-%m-%d")
+    
+    def append_cat(cat_name, state_key, tx_type="Expense"):
+        val = st.session_state.get(state_key, 0.0)
+        if val > 0:
+            new_rows.append({
+                "Username": st.session_state.username,
+                "Date": log_date_str,
+                "Type": tx_type,
+                "Category": cat_name,
+                "Description": "Consolidated Cycle Log",
+                "Amount": val
+            })
 
-st.caption("*(Any changes are kept safely on your screen if you press Enter, but you MUST click Save to push them to the cloud)*")
-
-with st.form("transaction_form", clear_on_submit=False):
-    col1, col2 = st.columns(2)
-    with col1:
-        st.write("**🏡 Core Living**")
-        housing = st.number_input("🏠 Rent / Mortgage", step=500.0, key="in_Hou")
-        electricity = st.number_input("⚡ Electricity", step=500.0, key="in_Ele")
-        water = st.number_input("💧 Water", step=100.0, key="in_Wat")
-        internet = st.number_input("🌐 Internet", step=100.0, key="in_Int")
-        groceries = st.number_input("🛒 Groceries", step=500.0, key="in_Gro")
-        business_ops = st.number_input("⚙️ Business Ops", step=500.0, key="in_Bus")
-
-    with col2:
-        st.write("**💳 Debt, Subs & Lifestyle**")
-        car_payment = st.number_input("🚘 Car Payment", step=1000.0, key="in_Car")
-        credit_card = st.number_input("💳 Credit Cards", step=500.0, key="in_Cre")
-        subscriptions = st.number_input("📺 Subscriptions", step=100.0, key="in_Sub")
-        investments = st.number_input("📈 Investments", step=500.0, key="in_Inv")
-        transpo = st.number_input("🚗 Gas & Auto", step=500.0, key="in_Tra")
-        leisure = st.number_input("🍔 Dining Out", step=500.0, key="in_Lei")
+    append_cat("Housing", "c_Hou")
+    append_cat("Electricity", "c_Ele")
+    append_cat("Water", "c_Wat")
+    append_cat("Internet", "c_Int")
+    append_cat("Groceries", "c_Gro")
+    append_cat("Business Ops", "c_Bus")
+    append_cat("Car Payment", "c_Car")
+    append_cat("Credit Cards", "c_Cre")
+    append_cat("Subscriptions", "c_Sub")
+    append_cat("Investments", "c_Inv")
+    append_cat("Transportation", "c_Tra")
+    append_cat("Leisure", "c_Lei")
+    append_cat("Emergency Spend", "c_Emg")
+    append_cat("Extra Income", "c_Ext", "Extra Income")
+    
+    if new_rows:
+        updated_db = pd.concat([cleaned_db, pd.DataFrame(new_rows)], ignore_index=True)
+    else:
+        updated_db = cleaned_db 
         
-    st.divider()
-    st.write("**🚨 Unplanned & Extra**")
-    c_ext1, c_ext2 = st.columns(2)
-    with c_ext1:
-        emergency_spend = st.number_input("🚨 Emergency Spend", step=500.0, key="in_Emg")
-    with c_ext2:
-        extra_income = st.number_input("💰 Extra / Unexpected Income", step=500.0, key="in_Ext")
-
-    if st.form_submit_button("💾 Save / Update Database"):
-        form_cats = [
-            "Housing", "Electricity", "Water", "Internet", "Groceries", "Business Ops", 
-            "Car Payment", "Credit Cards", "Subscriptions", "Investments", "Transportation", 
-            "Leisure", "Emergency Spend", "Extra Income"
-        ]
-        
-        # Strip out old entries for this date so we cleanly overwrite them
-        mask = ~((global_db["Username"] == st.session_state.username) & 
-                 (global_db["Date"] == date_str) & 
-                 (global_db["Category"].isin(form_cats)))
-        cleaned_db = global_db[mask]
-        
-        new_rows = []
-        def add_tx(cat, amt, tx_type="Expense"):
-            if amt is not None and amt > 0:
-                new_rows.append({
-                    "Username": st.session_state.username,
-                    "Date": date_str,
-                    "Type": tx_type,
-                    "Category": cat,
-                    "Description": "",
-                    "Amount": amt
-                })
-                
-        add_tx("Housing", housing)
-        add_tx("Electricity", electricity)
-        add_tx("Water", water)
-        add_tx("Internet", internet)
-        add_tx("Groceries", groceries)
-        add_tx("Business Ops", business_ops)
-        add_tx("Car Payment", car_payment)
-        add_tx("Credit Cards", credit_card)
-        add_tx("Subscriptions", subscriptions)
-        add_tx("Investments", investments)
-        add_tx("Transportation", transpo)
-        add_tx("Leisure", leisure)
-        add_tx("Emergency Spend", emergency_spend)
-        add_tx("Extra Income", extra_income, "Extra Income")
-        
-        if new_rows:
-            updated_db = pd.concat([cleaned_db, pd.DataFrame(new_rows)], ignore_index=True)
-        else:
-            updated_db = cleaned_db 
-            
-        conn.update(worksheet="Sheet1", data=updated_db)
-        st.cache_data.clear()
-        # Force a refresh to show the success message
-        st.session_state.show_success = True
-        st.rerun()
+    conn.update(worksheet="Sheet1", data=updated_db)
+    st.cache_data.clear()
+    st.session_state.show_success = True
+    st.rerun()
 
 st.divider()
 
 # ==========================================
 # --- 5. CALCULATIONS & EMERGENCY DRAIN ---
 # ==========================================
-extra_income_log = filtered_log[filtered_log["Type"] == "Extra Income"]
-total_extra_income = extra_income_log["Amount"].sum() if not extra_income_log.empty else 0
+total_extra_income = st.session_state.get("c_Ext", 0.0)
+total_emergency = st.session_state.get("c_Emg", 0.0)
 
-expense_log = filtered_log[filtered_log["Type"] == "Expense"]
+total_baseline_expenses = sum([
+    st.session_state.get("c_Hou", 0.0), st.session_state.get("c_Ele", 0.0), 
+    st.session_state.get("c_Wat", 0.0), st.session_state.get("c_Int", 0.0), 
+    st.session_state.get("c_Gro", 0.0), st.session_state.get("c_Bus", 0.0),
+    st.session_state.get("c_Car", 0.0), st.session_state.get("c_Cre", 0.0), 
+    st.session_state.get("c_Sub", 0.0), st.session_state.get("c_Inv", 0.0),
+    st.session_state.get("c_Tra", 0.0), st.session_state.get("c_Lei", 0.0)
+])
 
-emergency_log = expense_log[expense_log["Category"] == "Emergency Spend"]
-total_emergency = emergency_log["Amount"].sum() if not emergency_log.empty else 0
-
-baseline_expense_log = expense_log[expense_log["Category"] != "Emergency Spend"]
-total_baseline_expenses = baseline_expense_log["Amount"].sum() if not baseline_expense_log.empty else 0
-
-total_income = base_income + total_extra_income
-actual_remaining = total_income - total_baseline_expenses - total_emergency
+# Use the proportionally divided income for the specific bucket
+total_bucket_income = bucket_base_income + total_extra_income
+actual_remaining = total_bucket_income - total_baseline_expenses - total_emergency
 
 # ==========================================
 # --- 6. CASH FLOW ANALYTICS ---
 # ==========================================
-st.subheader("📊 Cash Flow Analysis")
+st.subheader(f"📊 {selected_bucket_name} Analysis")
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("Total Income", f"₱{total_income:,.2f}")
-m2.metric("Baseline Expenses", f"₱{total_baseline_expenses:,.2f}")
+m1.metric("Bucket Income", f"₱{total_bucket_income:,.2f}")
+m2.metric("Bucket Expenses", f"₱{total_baseline_expenses:,.2f}")
 m3.metric("Emergency Drain", f"₱{total_emergency:,.2f}", delta=-float(total_emergency), delta_color="inverse")
 m4.metric("Actual Savings", f"₱{actual_remaining:,.2f}", delta=float(actual_remaining))
 
-chart_col, hist_col = st.columns(2)
+st.write(f"**Expense Breakdown ({start_date.strftime('%b %d')} - {end_date.strftime('%b %d')})**")
 
-with chart_col:
-    st.write(f"**Expense Breakdown ({start_date.strftime('%b %d')} - {end_date.strftime('%b %d')})**")
-    if not baseline_expense_log.empty and total_baseline_expenses > 0:
-        agg_df = baseline_expense_log.groupby("Category", as_index=False)["Amount"].sum()
-        fig = px.pie(agg_df, names="Category", values="Amount", hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
-        st.plotly_chart(fig)
-    else:
-        empty_data = pd.DataFrame({"Category": ["Awaiting Data"], "Amount": [1]})
-        fig = px.pie(empty_data, names="Category", values="Amount", hole=0.4, color_discrete_sequence=["#e0e0e0"])
-        fig.update_traces(textinfo='none', hoverinfo='skip')
-        st.plotly_chart(fig)
+pie_data = []
+cats = [
+    ("Housing", "c_Hou"), ("Electricity", "c_Ele"), ("Water", "c_Wat"), ("Internet", "c_Int"),
+    ("Groceries", "c_Gro"), ("Business Ops", "c_Bus"), ("Car Payment", "c_Car"), ("Credit Cards", "c_Cre"),
+    ("Subscriptions", "c_Sub"), ("Investments", "c_Inv"), ("Transportation", "c_Tra"), ("Leisure", "c_Lei")
+]
+for name, key in cats:
+    val = st.session_state.get(key, 0.0)
+    if val > 0:
+        pie_data.append({"Category": name, "Amount": val})
 
-with hist_col:
-    st.write(f"**☁️ Cloud Ledger ({start_date.strftime('%b %d')} - {end_date.strftime('%b %d')})**")
-    if not filtered_log.empty:
-        display_log = filtered_log.sort_values(by="Date", ascending=False)
-        for original_index, row in display_log.iterrows():
-            icon = "🟢" if row["Type"] == "Extra Income" else "🔴"
-            col_icon, col_desc, col_amt, col_del = st.columns([1, 4, 3, 1])
-            with col_icon: st.write(icon)
-            with col_desc: st.write(f"**{row['Category']}**\n{row['Date']}")
-            with col_amt: st.write(f"₱ {row['Amount']:,.2f}")
-            with col_del:
-                if st.button("❌", key=f"del_{original_index}"):
-                    global_db = global_db.drop(original_index)
-                    conn.update(worksheet="Sheet1", data=global_db)
-                    st.cache_data.clear()
-                    st.rerun()
-    else:
-        st.info("No transactions logged in this range.")
+if pie_data:
+    fig = px.pie(pd.DataFrame(pie_data), names="Category", values="Amount", hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
+    st.plotly_chart(fig)
+else:
+    empty_data = pd.DataFrame({"Category": ["Awaiting Data"], "Amount": [1]})
+    fig = px.pie(empty_data, names="Category", values="Amount", hole=0.4, color_discrete_sequence=["#e0e0e0"])
+    fig.update_traces(textinfo='none', hoverinfo='skip')
+    st.plotly_chart(fig)
 
 # ==========================================
 # --- 7. SINKING FUNDS & GOALS ---
