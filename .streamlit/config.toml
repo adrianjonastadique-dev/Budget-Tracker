@@ -1,4 +1,4 @@
-[theme]
+theme = "ananke"  # Replace "ananke" with your theme's folder name
 # The main accent color (used for buttons, sliders, progress bars)
 primaryColor = "#00D26A" # A vibrant financial green
 
