@@ -92,20 +92,20 @@ else:
     start_date = end_date = selected_dates[0]
 
 # ==========================================
-# --- 3. FETCH & FILTER CLOUD DATA ---
+# --- 3. FETCH & SCRUB CLOUD DATA ---
 # ==========================================
 global_db = conn.read(worksheet="Sheet1", ttl=0).dropna(how="all")
 if "Username" not in global_db.columns:
     global_db = pd.DataFrame(columns=["Username", "Date", "Type", "Category", "Description", "Amount"])
 
-global_db["Date"] = global_db["Date"].astype(str)
-
-# THE FIX: Strip out all commas, spaces, and currency symbols before doing math
+# THE FIX: Strip out Google timestamps and forced currency formatting
+global_db["Date"] = pd.to_datetime(global_db["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
 global_db["Amount"] = global_db["Amount"].astype(str).str.replace(r"[₱,\s]", "", regex=True)
 global_db["Amount"] = pd.to_numeric(global_db["Amount"], errors="coerce").fillna(0.0)
 
 user_log = global_db[global_db["Username"] == st.session_state.username].copy()
 
+# Generate the filtered dataframe for the Analytics section
 if not user_log.empty:
     user_log["Date_Obj"] = pd.to_datetime(user_log["Date"], errors="coerce").dt.date
     filtered_log = user_log[(user_log["Date_Obj"] >= start_date) & (user_log["Date_Obj"] <= end_date)]
@@ -120,47 +120,69 @@ st.subheader("🧾 Daily Transaction Editor")
 entry_date = st.date_input("📅 Select Date to Edit", datetime.date.today())
 date_str = entry_date.strftime("%Y-%m-%d")
 
+# Extract existing data for the selected day
 day_log = user_log[user_log["Date"] == date_str]
 
-def get_existing_val(category):
-    val = day_log[day_log["Category"] == category]["Amount"].sum()
+def get_val(cat):
+    val = day_log[day_log["Category"] == cat]["Amount"].sum()
     return float(val) if val > 0 else None
+
+# THE FIX: Anchor values to session state so they survive "Enter" key presses
+if st.session_state.get("current_edit_date") != date_str:
+    st.session_state["current_edit_date"] = date_str
+    st.session_state["in_Hou"] = get_val("Housing")
+    st.session_state["in_Ele"] = get_val("Electricity")
+    st.session_state["in_Wat"] = get_val("Water")
+    st.session_state["in_Int"] = get_val("Internet")
+    st.session_state["in_Gro"] = get_val("Groceries")
+    st.session_state["in_Bus"] = get_val("Business Ops")
+    st.session_state["in_Car"] = get_val("Car Payment")
+    st.session_state["in_Cre"] = get_val("Credit Cards")
+    st.session_state["in_Sub"] = get_val("Subscriptions")
+    st.session_state["in_Inv"] = get_val("Investments")
+    st.session_state["in_Tra"] = get_val("Transportation")
+    st.session_state["in_Lei"] = get_val("Leisure")
+    st.session_state["in_Emg"] = get_val("Emergency Spend")
+    st.session_state["in_Ext"] = get_val("Extra Income")
+
+st.caption("*(Any changes are kept safely on your screen if you press Enter, but you MUST click Save to push them to the cloud)*")
 
 with st.form("transaction_form", clear_on_submit=False):
     col1, col2 = st.columns(2)
     with col1:
         st.write("**🏡 Core Living**")
-        housing = st.number_input("🏠 Rent / Mortgage", value=get_existing_val("Housing"), step=500.0)
-        electricity = st.number_input("⚡ Electricity", value=get_existing_val("Electricity"), step=500.0)
-        water = st.number_input("💧 Water", value=get_existing_val("Water"), step=100.0)
-        internet = st.number_input("🌐 Internet", value=get_existing_val("Internet"), step=100.0)
-        groceries = st.number_input("🛒 Groceries", value=get_existing_val("Groceries"), step=500.0)
-        business_ops = st.number_input("⚙️ Business Ops", value=get_existing_val("Business Ops"), step=500.0)
+        housing = st.number_input("🏠 Rent / Mortgage", step=500.0, key="in_Hou")
+        electricity = st.number_input("⚡ Electricity", step=500.0, key="in_Ele")
+        water = st.number_input("💧 Water", step=100.0, key="in_Wat")
+        internet = st.number_input("🌐 Internet", step=100.0, key="in_Int")
+        groceries = st.number_input("🛒 Groceries", step=500.0, key="in_Gro")
+        business_ops = st.number_input("⚙️ Business Ops", step=500.0, key="in_Bus")
 
     with col2:
         st.write("**💳 Debt, Subs & Lifestyle**")
-        car_payment = st.number_input("🚘 Car Payment", value=get_existing_val("Car Payment"), step=1000.0)
-        credit_card = st.number_input("💳 Credit Cards", value=get_existing_val("Credit Cards"), step=500.0)
-        subscriptions = st.number_input("📺 Subscriptions", value=get_existing_val("Subscriptions"), step=100.0)
-        investments = st.number_input("📈 Investments", value=get_existing_val("Investments"), step=500.0)
-        transpo = st.number_input("🚗 Gas & Auto", value=get_existing_val("Transportation"), step=500.0)
-        leisure = st.number_input("🍔 Dining Out", value=get_existing_val("Leisure"), step=500.0)
+        car_payment = st.number_input("🚘 Car Payment", step=1000.0, key="in_Car")
+        credit_card = st.number_input("💳 Credit Cards", step=500.0, key="in_Cre")
+        subscriptions = st.number_input("📺 Subscriptions", step=100.0, key="in_Sub")
+        investments = st.number_input("📈 Investments", step=500.0, key="in_Inv")
+        transpo = st.number_input("🚗 Gas & Auto", step=500.0, key="in_Tra")
+        leisure = st.number_input("🍔 Dining Out", step=500.0, key="in_Lei")
         
     st.divider()
     st.write("**🚨 Unplanned & Extra**")
     c_ext1, c_ext2 = st.columns(2)
     with c_ext1:
-        emergency_spend = st.number_input("🚨 Emergency Spend", value=get_existing_val("Emergency Spend"), step=500.0)
+        emergency_spend = st.number_input("🚨 Emergency Spend", step=500.0, key="in_Emg")
     with c_ext2:
-        extra_income = st.number_input("💰 Extra / Unexpected Income", value=get_existing_val("Extra Income"), step=500.0)
+        extra_income = st.number_input("💰 Extra / Unexpected Income", step=500.0, key="in_Ext")
 
-    if st.form_submit_button("💾 Save / Update Date"):
+    if st.form_submit_button("💾 Save / Update Database"):
         form_cats = [
             "Housing", "Electricity", "Water", "Internet", "Groceries", "Business Ops", 
             "Car Payment", "Credit Cards", "Subscriptions", "Investments", "Transportation", 
             "Leisure", "Emergency Spend", "Extra Income"
         ]
         
+        # Strip out old entries for this date so we cleanly overwrite them
         mask = ~((global_db["Username"] == st.session_state.username) & 
                  (global_db["Date"] == date_str) & 
                  (global_db["Category"].isin(form_cats)))
@@ -200,6 +222,7 @@ with st.form("transaction_form", clear_on_submit=False):
             
         conn.update(worksheet="Sheet1", data=updated_db)
         st.cache_data.clear()
+        # Force a refresh to show the success message
         st.session_state.show_success = True
         st.rerun()
 
@@ -237,7 +260,6 @@ chart_col, hist_col = st.columns(2)
 with chart_col:
     st.write(f"**Expense Breakdown ({start_date.strftime('%b %d')} - {end_date.strftime('%b %d')})**")
     if not baseline_expense_log.empty and total_baseline_expenses > 0:
-        # THE FIX: Aggregate categories so Plotly doesn't split the same category into multiple slices
         agg_df = baseline_expense_log.groupby("Category", as_index=False)["Amount"].sum()
         fig = px.pie(agg_df, names="Category", values="Amount", hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
         st.plotly_chart(fig)
