@@ -1,15 +1,15 @@
 [theme]
-# The main accent color (used for buttons, sliders, progress bars)
-primaryColor = "#00D26A" # A vibrant financial green
+# Apple-style Blue accent color
+primaryColor = "#007AFF"
 
-# The background color of the main body
-backgroundColor = "#0E1117" # Deep charcoal dark mode
+# Clean White main background
+backgroundColor = "#FFFFFF"
 
-# The background color of the sidebar
-secondaryBackgroundColor = "#262730" 
+# Light Gray sidebar (consistent with macOS/iOS)
+secondaryBackgroundColor = "#F5F5F7"
 
-# The color of the text
-textColor = "#FAFAFA" 
+# Deep Black text for readability
+textColor = "#1D1D1F"
 
-# The font style (options: "sans serif", "serif", "monospace")
+# Modern sans-serif font
 font = "sans serif"
