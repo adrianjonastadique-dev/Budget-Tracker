@@ -7,6 +7,16 @@ from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(page_title="Smart Budget", layout="wide")
 
+# Hide Streamlit branding for a clean UI
+hide_st_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            </style>
+            """
+st.markdown(hide_st_style, unsafe_allow_html=True)
+
 # ==========================================
 # --- ISOLATED BUDGET DATABASE CONNECTION ---
 # ==========================================
