@@ -95,7 +95,6 @@ with col_type:
 
 _, last_day = calendar.monthrange(selected_year, selected_month)
 
-# Calculate buckets and the income divisor for correct math
 if cycle_type == "Monthly":
     buckets = [("Full Month", datetime.date(selected_year, selected_month, 1), datetime.date(selected_year, selected_month, last_day))]
     income_divisor = 1
@@ -120,14 +119,12 @@ with col_bucket:
     bucket_names = [b[0] for b in buckets]
     selected_bucket_name = st.selectbox("Select Specific Bucket", bucket_names)
 
-# Extract exact dates for the chosen bucket
 for b in buckets:
     if b[0] == selected_bucket_name:
         start_date = b[1]
         end_date = b[2]
         break
 
-# Divide the monthly income proportionally based on the selected bucket
 bucket_base_income = base_income / income_divisor
 
 # ==========================================
@@ -151,7 +148,8 @@ else:
 
 def get_cycle_sum(cat):
     val = cycle_log[cycle_log["Category"] == cat]["Amount"].sum()
-    return float(val) if val > 0 else 0.0
+    # Returns None instead of 0.0 so the input box stays completely blank
+    return float(val) if val > 0 else None
 
 # ==========================================
 # --- 4. THE STATIC CYCLE LEDGER ---
@@ -221,15 +219,15 @@ if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_c
     log_date_str = start_date.strftime("%Y-%m-%d")
     
     def append_cat(cat_name, state_key, tx_type="Expense"):
-        val = st.session_state.get(state_key, 0.0)
-        if val > 0:
+        val = st.session_state.get(state_key)
+        if val is not None and float(val) > 0:
             new_rows.append({
                 "Username": st.session_state.username,
                 "Date": log_date_str,
                 "Type": tx_type,
                 "Category": cat_name,
                 "Description": "Consolidated Cycle Log",
-                "Amount": val
+                "Amount": float(val)
             })
 
     append_cat("Housing", "c_Hou")
@@ -262,19 +260,21 @@ st.divider()
 # ==========================================
 # --- 5. CALCULATIONS & EMERGENCY DRAIN ---
 # ==========================================
-total_extra_income = st.session_state.get("c_Ext", 0.0)
-total_emergency = st.session_state.get("c_Emg", 0.0)
+def safe_float(val):
+    return float(val) if val else 0.0
+
+total_extra_income = safe_float(st.session_state.get("c_Ext"))
+total_emergency = safe_float(st.session_state.get("c_Emg"))
 
 total_baseline_expenses = sum([
-    st.session_state.get("c_Hou", 0.0), st.session_state.get("c_Ele", 0.0), 
-    st.session_state.get("c_Wat", 0.0), st.session_state.get("c_Int", 0.0), 
-    st.session_state.get("c_Gro", 0.0), st.session_state.get("c_Bus", 0.0),
-    st.session_state.get("c_Car", 0.0), st.session_state.get("c_Cre", 0.0), 
-    st.session_state.get("c_Sub", 0.0), st.session_state.get("c_Inv", 0.0),
-    st.session_state.get("c_Tra", 0.0), st.session_state.get("c_Lei", 0.0)
+    safe_float(st.session_state.get("c_Hou")), safe_float(st.session_state.get("c_Ele")), 
+    safe_float(st.session_state.get("c_Wat")), safe_float(st.session_state.get("c_Int")), 
+    safe_float(st.session_state.get("c_Gro")), safe_float(st.session_state.get("c_Bus")),
+    safe_float(st.session_state.get("c_Car")), safe_float(st.session_state.get("c_Cre")), 
+    safe_float(st.session_state.get("c_Sub")), safe_float(st.session_state.get("c_Inv")),
+    safe_float(st.session_state.get("c_Tra")), safe_float(st.session_state.get("c_Lei"))
 ])
 
-# Use the proportionally divided income for the specific bucket
 total_bucket_income = bucket_base_income + total_extra_income
 actual_remaining = total_bucket_income - total_baseline_expenses - total_emergency
 
@@ -294,10 +294,12 @@ pie_data = []
 cats = [
     ("Housing", "c_Hou"), ("Electricity", "c_Ele"), ("Water", "c_Wat"), ("Internet", "c_Int"),
     ("Groceries", "c_Gro"), ("Business Ops", "c_Bus"), ("Car Payment", "c_Car"), ("Credit Cards", "c_Cre"),
-    ("Subscriptions", "c_Sub"), ("Investments", "c_Inv"), ("Transportation", "c_Tra"), ("Leisure", "c_Lei")
+    ("Subscriptions", "c_Sub"), ("Investments", "c_Inv"), ("Transportation", "c_Tra"), ("Leisure", "c_Lei"),
+    ("Emergency Spend", "c_Emg")
 ]
+
 for name, key in cats:
-    val = st.session_state.get(key, 0.0)
+    val = safe_float(st.session_state.get(key))
     if val > 0:
         pie_data.append({"Category": name, "Amount": val})
 
@@ -311,44 +313,17 @@ else:
     st.plotly_chart(fig)
 
 # ==========================================
-# --- 7. SINKING FUNDS & GOALS ---
+# --- 7. EXPENSE SUMMARY TABLE ---
 # ==========================================
 st.write("---")
-st.write("### 🎯 Custom Sinking Funds & Goals")
+st.write("### 📋 Expense Summary")
 
-if actual_remaining > 0:
-    st.write(f"You have a surplus of **₱{actual_remaining:,.2f}** to allocate.")
-    if 'goal_count' not in st.session_state:
-        st.session_state.goal_count = 0
-
-    col_btn1, col_btn2, _ = st.columns([1, 1, 4])
-    with col_btn1:
-        if st.button("➕ Add Goal"):
-            st.session_state.goal_count += 1
-    with col_btn2:
-        if st.session_state.goal_count > 0:
-            if st.button("➖ Remove Goal"):
-                st.session_state.goal_count -= 1
-
-    if st.session_state.goal_count > 0:
-        col_g1, col_g2 = st.columns(2)
-        total_allocated = 0
-        goal_data = [] 
-        
-        with col_g1:
-            for i in range(st.session_state.goal_count):
-                g_name = st.text_input(f"Goal {i+1} Name", value="", key=f"name_{i}")
-                g_pct = st.slider(f"{g_name or f'Goal {i+1}'} (%)", 0, 100, 0, key=f"pct_{i}")
-                total_allocated += g_pct
-                goal_data.append((g_name, g_pct))
-                
-        with col_g2:
-            if total_allocated > 100:
-                st.error(f"⚠️ You allocated {total_allocated}%. Adjust to 100% or less.")
-            else:
-                for i, (name, pct) in enumerate(goal_data):
-                    val = actual_remaining * (pct / 100)
-                    st.caption(f"**{name or f'Goal {i+1}'}**: ₱{val:,.2f}")
-                    st.progress(pct / 100)
+if pie_data:
+    # Convert active pie_data into a clean, sorted dataframe
+    summary_df = pd.DataFrame(pie_data).sort_values(by="Amount", ascending=False)
+    summary_df["Amount"] = summary_df["Amount"].apply(lambda x: f"₱ {x:,.2f}")
+    
+    # Hide the index for a cleaner look
+    st.table(summary_df.set_index("Category"))
 else:
-    st.info("💡 No surplus savings to allocate this cycle.")
+    st.info("No expenses recorded for this cycle.")
