@@ -99,7 +99,10 @@ if "Username" not in global_db.columns:
     global_db = pd.DataFrame(columns=["Username", "Date", "Type", "Category", "Description", "Amount"])
 
 global_db["Date"] = global_db["Date"].astype(str)
-global_db["Amount"] = pd.to_numeric(global_db["Amount"], errors="coerce").fillna(0)
+
+# THE FIX: Strip out all commas, spaces, and currency symbols before doing math
+global_db["Amount"] = global_db["Amount"].astype(str).str.replace(r"[₱,\s]", "", regex=True)
+global_db["Amount"] = pd.to_numeric(global_db["Amount"], errors="coerce").fillna(0.0)
 
 user_log = global_db[global_db["Username"] == st.session_state.username].copy()
 
@@ -114,19 +117,15 @@ else:
 # ==========================================
 st.subheader("🧾 Daily Transaction Editor")
 
-# Place the date picker outside the form so changing it instantly updates the boxes
 entry_date = st.date_input("📅 Select Date to Edit", datetime.date.today())
 date_str = entry_date.strftime("%Y-%m-%d")
 
-# Fetch existing data from the cloud for the specifically selected date
 day_log = user_log[user_log["Date"] == date_str]
 
-# Helper function to grab existing values and pre-fill the form
 def get_existing_val(category):
     val = day_log[day_log["Category"] == category]["Amount"].sum()
     return float(val) if val > 0 else None
 
-# The Form: Uses clear_on_submit=False so your data never disappears
 with st.form("transaction_form", clear_on_submit=False):
     col1, col2 = st.columns(2)
     with col1:
@@ -156,14 +155,12 @@ with st.form("transaction_form", clear_on_submit=False):
         extra_income = st.number_input("💰 Extra / Unexpected Income", value=get_existing_val("Extra Income"), step=500.0)
 
     if st.form_submit_button("💾 Save / Update Date"):
-        # List of categories managed by this grid
         form_cats = [
             "Housing", "Electricity", "Water", "Internet", "Groceries", "Business Ops", 
             "Car Payment", "Credit Cards", "Subscriptions", "Investments", "Transportation", 
             "Leisure", "Emergency Spend", "Extra Income"
         ]
         
-        # Smart Overwrite: Remove old data for this specific date and categories
         mask = ~((global_db["Username"] == st.session_state.username) & 
                  (global_db["Date"] == date_str) & 
                  (global_db["Category"].isin(form_cats)))
@@ -181,7 +178,6 @@ with st.form("transaction_form", clear_on_submit=False):
                     "Amount": amt
                 })
                 
-        # Capture current form inputs
         add_tx("Housing", housing)
         add_tx("Electricity", electricity)
         add_tx("Water", water)
@@ -197,11 +193,10 @@ with st.form("transaction_form", clear_on_submit=False):
         add_tx("Emergency Spend", emergency_spend)
         add_tx("Extra Income", extra_income, "Extra Income")
         
-        # Push the new updated rows to the database
         if new_rows:
             updated_db = pd.concat([cleaned_db, pd.DataFrame(new_rows)], ignore_index=True)
         else:
-            updated_db = cleaned_db # If you erased everything, just save the blank state
+            updated_db = cleaned_db 
             
         conn.update(worksheet="Sheet1", data=updated_db)
         st.cache_data.clear()
@@ -242,7 +237,9 @@ chart_col, hist_col = st.columns(2)
 with chart_col:
     st.write(f"**Expense Breakdown ({start_date.strftime('%b %d')} - {end_date.strftime('%b %d')})**")
     if not baseline_expense_log.empty and total_baseline_expenses > 0:
-        fig = px.pie(baseline_expense_log, names="Category", values="Amount", hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
+        # THE FIX: Aggregate categories so Plotly doesn't split the same category into multiple slices
+        agg_df = baseline_expense_log.groupby("Category", as_index=False)["Amount"].sum()
+        fig = px.pie(agg_df, names="Category", values="Amount", hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
         st.plotly_chart(fig)
     else:
         empty_data = pd.DataFrame({"Category": ["Awaiting Data"], "Amount": [1]})
