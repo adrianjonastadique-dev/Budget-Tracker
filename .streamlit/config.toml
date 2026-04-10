@@ -1,0 +1,15 @@
+[theme]
+# The main accent color (used for buttons, sliders, progress bars)
+primaryColor = "#00D26A" # A vibrant financial green
+
+# The background color of the main body
+backgroundColor = "#0E1117" # Deep charcoal dark mode
+
+# The background color of the sidebar
+secondaryBackgroundColor = "#262730" 
+
+# The color of the text
+textColor = "#FAFAFA" 
+
+# The font style (options: "sans serif", "serif", "monospace")
+font = "sans serif"
