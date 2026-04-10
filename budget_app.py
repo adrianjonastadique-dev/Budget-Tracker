@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import datetime
+import plotly.express as px
 from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(page_title="Cash Flow Tracker", layout="centered")
@@ -8,7 +9,6 @@ st.set_page_config(page_title="Cash Flow Tracker", layout="centered")
 # ==========================================
 # --- ISOLATED BUDGET DATABASE CONNECTION ---
 # ==========================================
-# This ensures it looks for [connections.budget_gsheets] in your Streamlit Secrets
 conn = st.connection("budget_gsheets", type=GSheetsConnection)
 
 if "budget_auth" not in st.session_state:
@@ -40,7 +40,7 @@ if not st.session_state.budget_auth:
                 else:
                     st.error("❌ Invalid credentials.")
             except Exception as e:
-                st.error("🚨 Database error. Ensure the 'Users' tab is set up correctly in your new Budget_DB.")
+                st.error("🚨 Database error. Ensure the 'Users' tab is set up correctly in your Budget_DB.")
     st.stop()
 
 # ==========================================
@@ -61,17 +61,24 @@ with st.sidebar:
 
 st.title("💸 Monthly Cash Flow")
 
-# Fetch and filter the main ledger
+# Fetch the main ledger
 global_db = conn.read(worksheet="Sheet1", ttl=0).dropna(how="all")
 if "Username" not in global_db.columns:
     global_db = pd.DataFrame(columns=["Username", "Date", "Type", "Category", "Description", "Amount"])
 
-global_db["Date"] = pd.to_datetime(global_db["Date"])
-user_log = global_db[global_db["Username"] == st.session_state.username]
+# BUG FIX: Force dates to string in the master DB to prevent timestamp corruption when saving
+global_db["Date"] = global_db["Date"].astype(str)
 
-# Filter by current calendar month
-current_month = datetime.date.today().replace(day=1)
-this_month_log = user_log[user_log["Date"].dt.date >= current_month]
+# Filter for the specific user
+user_log = global_db[global_db["Username"] == st.session_state.username].copy()
+
+# Safely filter by current calendar month without touching the master DB format
+if not user_log.empty:
+    user_log["Date_Obj"] = pd.to_datetime(user_log["Date"])
+    current_month = datetime.date.today().replace(day=1)
+    this_month_log = user_log[user_log["Date_Obj"].dt.date >= current_month]
+else:
+    this_month_log = user_log
 
 # ==========================================
 # --- DATA ENTRY ---
@@ -122,8 +129,8 @@ st.divider()
 # ==========================================
 # --- FINANCIAL METRICS ---
 # ==========================================
-total_income = this_month_log[this_month_log["Type"] == "Income"]["Amount"].sum()
-total_expense = this_month_log[this_month_log["Type"] == "Expense"]["Amount"].sum()
+total_income = this_month_log[this_month_log["Type"] == "Income"]["Amount"].sum() if not this_month_log.empty else 0
+total_expense = this_month_log[this_month_log["Type"] == "Expense"]["Amount"].sum() if not this_month_log.empty else 0
 net_cash = total_income - total_expense
 
 m1, m2, m3 = st.columns(3)
@@ -136,12 +143,40 @@ progress = min(max(net_cash / st.session_state.savings_goal, 0.0), 1.0) if st.se
 st.progress(progress)
 
 # ==========================================
+# --- VISUAL CHARTS (PLOTLY) ---
+# ==========================================
+expense_log = this_month_log[this_month_log["Type"] == "Expense"]
+if not expense_log.empty:
+    st.write("---")
+    st.write("### 📊 Expense Breakdown")
+    # Groups expenses by category for a clean, interactive donut chart
+    fig = px.pie(expense_log, values="Amount", names="Category", hole=0.4)
+    # Removing use_container_width warning based on your latest error logs
+    st.plotly_chart(fig)
+
+# ==========================================
+# --- INCOME & BUDGET BREAKDOWN ---
+# ==========================================
+st.write("---")
+st.write("### 🧮 Cash Flow Breakdown")
+
+b1, b2, b3 = st.columns(3)
+b1.write("**Total Income Breakdown**")
+b1.info(f"**Monthly:** ₱ {total_income:,.2f}\n\n**Per Cutoff:** ₱ {total_income / 2:,.2f}\n\n**Weekly:** ₱ {total_income / 4:,.2f}")
+
+b2.write("**Safe-to-Spend (Net Cash)**")
+b2.success(f"**Monthly:** ₱ {max(0, net_cash):,.2f}\n\n**Per Cutoff:** ₱ {max(0, net_cash) / 2:,.2f}\n\n**Weekly:** ₱ {max(0, net_cash) / 4:,.2f}")
+
+b3.write("**Fixed Expenses Snapshot**")
+b3.error(f"**Monthly:** ₱ {total_expense:,.2f}\n\n**Per Cutoff:** ₱ {total_expense / 2:,.2f}\n\n**Weekly:** ₱ {total_expense / 4:,.2f}")
+st.write("---")
+
+# ==========================================
 # --- LEDGER ---
 # ==========================================
 if not this_month_log.empty:
     st.write("### 📅 This Month's Ledger")
     
-    # Sort by date descending so the newest items are at the top
     display_log = this_month_log.sort_values(by="Date", ascending=False)
     
     for original_index, row in display_log.iterrows():
@@ -153,6 +188,7 @@ if not this_month_log.empty:
         with col_amt: st.write(f"₱ {row['Amount']:,.2f}")
         with col_del:
             if st.button("❌", key=f"del_{original_index}"):
+                # Safely delete from the master DB
                 global_db = global_db.drop(original_index)
                 conn.update(worksheet="Sheet1", data=global_db)
                 st.cache_data.clear()
