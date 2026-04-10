@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import datetime
+import calendar
 from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(page_title="Smart Budget", layout="wide")
@@ -79,10 +80,11 @@ col_filter, _ = st.columns([1, 2])
 with col_filter:
     today = datetime.date.today()
     first_day = today.replace(day=1)
-    # Streamlit returns a tuple of dates when selecting a range
-    selected_dates = st.date_input("📅 Dashboard Date Range (From - To)", value=(first_day, today))
+    # FIX: Default end_date to the LAST day of the month so future planned transactions show up!
+    last_day = today.replace(day=calendar.monthrange(today.year, today.month)[1])
+    
+    selected_dates = st.date_input("📅 Dashboard Date Range (From - To)", value=(first_day, last_day))
 
-# Safety check: if user clicks only the start date, treat it as a 1-day range
 if len(selected_dates) == 2:
     start_date, end_date = selected_dates
 else:
@@ -95,12 +97,14 @@ global_db = conn.read(worksheet="Sheet1", ttl=0).dropna(how="all")
 if "Username" not in global_db.columns:
     global_db = pd.DataFrame(columns=["Username", "Date", "Type", "Category", "Description", "Amount"])
 
+# FIX: Force exact formats to prevent Google Sheets from treating numbers as text
 global_db["Date"] = global_db["Date"].astype(str)
+global_db["Amount"] = pd.to_numeric(global_db["Amount"], errors="coerce").fillna(0)
+
 user_log = global_db[global_db["Username"] == st.session_state.username].copy()
 
-# Filter the database using your selected From - To dates
 if not user_log.empty:
-    user_log["Date_Obj"] = pd.to_datetime(user_log["Date"]).dt.date
+    user_log["Date_Obj"] = pd.to_datetime(user_log["Date"], errors="coerce").dt.date
     filtered_log = user_log[(user_log["Date_Obj"] >= start_date) & (user_log["Date_Obj"] <= end_date)]
 else:
     filtered_log = user_log
@@ -144,7 +148,6 @@ with st.form("transaction_form", clear_on_submit=True):
         new_rows = []
         date_str = entry_date.strftime("%Y-%m-%d")
         
-        # Helper function to compile only filled entries
         def add_tx(cat, amt, tx_type="Expense"):
             if amt is not None and amt > 0:
                 new_rows.append({
