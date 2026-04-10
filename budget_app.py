@@ -45,10 +45,8 @@ if not st.session_state.budget_auth:
 # --- 1. THE INCOME ENGINE (SIDEBAR) ---
 # ==========================================
 if "show_success" in st.session_state and st.session_state.show_success:
-    st.success("✅ Transactions Safely Logged to Cloud!")
+    st.success("✅ Transactions Safely Synced to Cloud!")
     st.session_state.show_success = False
-
-dk = datetime.date.today().strftime("%Y%m%d")
 
 with st.sidebar:
     st.header(f"👤 {st.session_state.username}")
@@ -112,50 +110,66 @@ else:
     filtered_log = user_log
 
 # ==========================================
-# --- 4. LIVE TRANSACTION GRID ---
+# --- 4. STATEFUL TRANSACTION EDITOR ---
 # ==========================================
-st.subheader("🧾 Log Transactions")
+st.subheader("🧾 Daily Transaction Editor")
 
-# DYNAMIC KEY ENGINE: Forces the form to wipe ONLY after a successful save
-if "fsuffix" not in st.session_state:
-    st.session_state.fsuffix = 0
-sfx = st.session_state.fsuffix
+# Place the date picker outside the form so changing it instantly updates the boxes
+entry_date = st.date_input("📅 Select Date to Edit", datetime.date.today())
+date_str = entry_date.strftime("%Y-%m-%d")
 
-# Notice clear_on_submit is now FALSE. It will not wipe on an accidental Enter press.
+# Fetch existing data from the cloud for the specifically selected date
+day_log = user_log[user_log["Date"] == date_str]
+
+# Helper function to grab existing values and pre-fill the form
+def get_existing_val(category):
+    val = day_log[day_log["Category"] == category]["Amount"].sum()
+    return float(val) if val > 0 else None
+
+# The Form: Uses clear_on_submit=False so your data never disappears
 with st.form("transaction_form", clear_on_submit=False):
-    entry_date = st.date_input("📅 Date of Transactions", datetime.date.today())
-    
     col1, col2 = st.columns(2)
     with col1:
         st.write("**🏡 Core Living**")
-        housing = st.number_input("🏠 Rent / Mortgage", value=None, step=500.0, key=f"hou_{sfx}")
-        electricity = st.number_input("⚡ Electricity", value=None, step=500.0, key=f"ele_{sfx}")
-        water = st.number_input("💧 Water", value=None, step=100.0, key=f"wat_{sfx}")
-        internet = st.number_input("🌐 Internet", value=None, step=100.0, key=f"int_{sfx}")
-        groceries = st.number_input("🛒 Groceries", value=None, step=500.0, key=f"gro_{sfx}")
-        business_ops = st.number_input("⚙️ Business Ops", value=None, step=500.0, key=f"bus_{sfx}")
+        housing = st.number_input("🏠 Rent / Mortgage", value=get_existing_val("Housing"), step=500.0)
+        electricity = st.number_input("⚡ Electricity", value=get_existing_val("Electricity"), step=500.0)
+        water = st.number_input("💧 Water", value=get_existing_val("Water"), step=100.0)
+        internet = st.number_input("🌐 Internet", value=get_existing_val("Internet"), step=100.0)
+        groceries = st.number_input("🛒 Groceries", value=get_existing_val("Groceries"), step=500.0)
+        business_ops = st.number_input("⚙️ Business Ops", value=get_existing_val("Business Ops"), step=500.0)
 
     with col2:
         st.write("**💳 Debt, Subs & Lifestyle**")
-        car_payment = st.number_input("🚘 Car Payment", value=None, step=1000.0, key=f"car_{sfx}")
-        credit_card = st.number_input("💳 Credit Cards", value=None, step=500.0, key=f"cre_{sfx}")
-        subscriptions = st.number_input("📺 Subscriptions", value=None, step=100.0, key=f"sub_{sfx}")
-        investments = st.number_input("📈 Investments", value=None, step=500.0, key=f"inv_{sfx}")
-        transpo = st.number_input("🚗 Gas & Auto", value=None, step=500.0, key=f"tra_{sfx}")
-        leisure = st.number_input("🍔 Dining Out", value=None, step=500.0, key=f"lei_{sfx}")
+        car_payment = st.number_input("🚘 Car Payment", value=get_existing_val("Car Payment"), step=1000.0)
+        credit_card = st.number_input("💳 Credit Cards", value=get_existing_val("Credit Cards"), step=500.0)
+        subscriptions = st.number_input("📺 Subscriptions", value=get_existing_val("Subscriptions"), step=100.0)
+        investments = st.number_input("📈 Investments", value=get_existing_val("Investments"), step=500.0)
+        transpo = st.number_input("🚗 Gas & Auto", value=get_existing_val("Transportation"), step=500.0)
+        leisure = st.number_input("🍔 Dining Out", value=get_existing_val("Leisure"), step=500.0)
         
     st.divider()
     st.write("**🚨 Unplanned & Extra**")
     c_ext1, c_ext2 = st.columns(2)
     with c_ext1:
-        emergency_spend = st.number_input("🚨 Emergency Spend", value=None, step=500.0, key=f"emg_{sfx}")
+        emergency_spend = st.number_input("🚨 Emergency Spend", value=get_existing_val("Emergency Spend"), step=500.0)
     with c_ext2:
-        extra_income = st.number_input("💰 Extra / Unexpected Income", value=None, step=500.0, key=f"ext_{sfx}")
+        extra_income = st.number_input("💰 Extra / Unexpected Income", value=get_existing_val("Extra Income"), step=500.0)
 
-    if st.form_submit_button("➕ Save Transactions"):
-        new_rows = []
-        date_str = entry_date.strftime("%Y-%m-%d")
+    if st.form_submit_button("💾 Save / Update Date"):
+        # List of categories managed by this grid
+        form_cats = [
+            "Housing", "Electricity", "Water", "Internet", "Groceries", "Business Ops", 
+            "Car Payment", "Credit Cards", "Subscriptions", "Investments", "Transportation", 
+            "Leisure", "Emergency Spend", "Extra Income"
+        ]
         
+        # Smart Overwrite: Remove old data for this specific date and categories
+        mask = ~((global_db["Username"] == st.session_state.username) & 
+                 (global_db["Date"] == date_str) & 
+                 (global_db["Category"].isin(form_cats)))
+        cleaned_db = global_db[mask]
+        
+        new_rows = []
         def add_tx(cat, amt, tx_type="Expense"):
             if amt is not None and amt > 0:
                 new_rows.append({
@@ -167,6 +181,7 @@ with st.form("transaction_form", clear_on_submit=False):
                     "Amount": amt
                 })
                 
+        # Capture current form inputs
         add_tx("Housing", housing)
         add_tx("Electricity", electricity)
         add_tx("Water", water)
@@ -182,17 +197,16 @@ with st.form("transaction_form", clear_on_submit=False):
         add_tx("Emergency Spend", emergency_spend)
         add_tx("Extra Income", extra_income, "Extra Income")
         
+        # Push the new updated rows to the database
         if new_rows:
-            updated_db = pd.concat([global_db, pd.DataFrame(new_rows)], ignore_index=True)
-            conn.update(worksheet="Sheet1", data=updated_db)
-            st.cache_data.clear()
-            
-            # Change the dynamic ID to force the board to wipe clean
-            st.session_state.fsuffix += 1
-            st.session_state.show_success = True
-            st.rerun()
+            updated_db = pd.concat([cleaned_db, pd.DataFrame(new_rows)], ignore_index=True)
         else:
-            st.warning("Please enter an amount in at least one category to save.")
+            updated_db = cleaned_db # If you erased everything, just save the blank state
+            
+        conn.update(worksheet="Sheet1", data=updated_db)
+        st.cache_data.clear()
+        st.session_state.show_success = True
+        st.rerun()
 
 st.divider()
 
