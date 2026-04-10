@@ -44,6 +44,10 @@ if not st.session_state.budget_auth:
 # ==========================================
 # --- 1. THE INCOME ENGINE (SIDEBAR) ---
 # ==========================================
+if "show_success" in st.session_state and st.session_state.show_success:
+    st.success("✅ Transactions Safely Logged to Cloud!")
+    st.session_state.show_success = False
+
 dk = datetime.date.today().strftime("%Y%m%d")
 
 with st.sidebar:
@@ -80,7 +84,6 @@ col_filter, _ = st.columns([1, 2])
 with col_filter:
     today = datetime.date.today()
     first_day = today.replace(day=1)
-    # FIX: Default end_date to the LAST day of the month so future planned transactions show up!
     last_day = today.replace(day=calendar.monthrange(today.year, today.month)[1])
     
     selected_dates = st.date_input("📅 Dashboard Date Range (From - To)", value=(first_day, last_day))
@@ -97,7 +100,6 @@ global_db = conn.read(worksheet="Sheet1", ttl=0).dropna(how="all")
 if "Username" not in global_db.columns:
     global_db = pd.DataFrame(columns=["Username", "Date", "Type", "Category", "Description", "Amount"])
 
-# FIX: Force exact formats to prevent Google Sheets from treating numbers as text
 global_db["Date"] = global_db["Date"].astype(str)
 global_db["Amount"] = pd.to_numeric(global_db["Amount"], errors="coerce").fillna(0)
 
@@ -114,35 +116,41 @@ else:
 # ==========================================
 st.subheader("🧾 Log Transactions")
 
-with st.form("transaction_form", clear_on_submit=True):
+# DYNAMIC KEY ENGINE: Forces the form to wipe ONLY after a successful save
+if "fsuffix" not in st.session_state:
+    st.session_state.fsuffix = 0
+sfx = st.session_state.fsuffix
+
+# Notice clear_on_submit is now FALSE. It will not wipe on an accidental Enter press.
+with st.form("transaction_form", clear_on_submit=False):
     entry_date = st.date_input("📅 Date of Transactions", datetime.date.today())
     
     col1, col2 = st.columns(2)
     with col1:
         st.write("**🏡 Core Living**")
-        housing = st.number_input("🏠 Rent / Mortgage", value=None, step=500.0)
-        electricity = st.number_input("⚡ Electricity", value=None, step=500.0)
-        water = st.number_input("💧 Water", value=None, step=100.0)
-        internet = st.number_input("🌐 Internet", value=None, step=100.0)
-        groceries = st.number_input("🛒 Groceries", value=None, step=500.0)
-        business_ops = st.number_input("⚙️ Business Ops", value=None, step=500.0)
+        housing = st.number_input("🏠 Rent / Mortgage", value=None, step=500.0, key=f"hou_{sfx}")
+        electricity = st.number_input("⚡ Electricity", value=None, step=500.0, key=f"ele_{sfx}")
+        water = st.number_input("💧 Water", value=None, step=100.0, key=f"wat_{sfx}")
+        internet = st.number_input("🌐 Internet", value=None, step=100.0, key=f"int_{sfx}")
+        groceries = st.number_input("🛒 Groceries", value=None, step=500.0, key=f"gro_{sfx}")
+        business_ops = st.number_input("⚙️ Business Ops", value=None, step=500.0, key=f"bus_{sfx}")
 
     with col2:
         st.write("**💳 Debt, Subs & Lifestyle**")
-        car_payment = st.number_input("🚘 Car Payment", value=None, step=1000.0)
-        credit_card = st.number_input("💳 Credit Cards", value=None, step=500.0)
-        subscriptions = st.number_input("📺 Subscriptions", value=None, step=100.0)
-        investments = st.number_input("📈 Investments", value=None, step=500.0)
-        transpo = st.number_input("🚗 Gas & Auto", value=None, step=500.0)
-        leisure = st.number_input("🍔 Dining Out", value=None, step=500.0)
+        car_payment = st.number_input("🚘 Car Payment", value=None, step=1000.0, key=f"car_{sfx}")
+        credit_card = st.number_input("💳 Credit Cards", value=None, step=500.0, key=f"cre_{sfx}")
+        subscriptions = st.number_input("📺 Subscriptions", value=None, step=100.0, key=f"sub_{sfx}")
+        investments = st.number_input("📈 Investments", value=None, step=500.0, key=f"inv_{sfx}")
+        transpo = st.number_input("🚗 Gas & Auto", value=None, step=500.0, key=f"tra_{sfx}")
+        leisure = st.number_input("🍔 Dining Out", value=None, step=500.0, key=f"lei_{sfx}")
         
     st.divider()
     st.write("**🚨 Unplanned & Extra**")
     c_ext1, c_ext2 = st.columns(2)
     with c_ext1:
-        emergency_spend = st.number_input("🚨 Emergency Spend", value=None, step=500.0)
+        emergency_spend = st.number_input("🚨 Emergency Spend", value=None, step=500.0, key=f"emg_{sfx}")
     with c_ext2:
-        extra_income = st.number_input("💰 Extra / Unexpected Income", value=None, step=500.0)
+        extra_income = st.number_input("💰 Extra / Unexpected Income", value=None, step=500.0, key=f"ext_{sfx}")
 
     if st.form_submit_button("➕ Save Transactions"):
         new_rows = []
@@ -178,6 +186,10 @@ with st.form("transaction_form", clear_on_submit=True):
             updated_db = pd.concat([global_db, pd.DataFrame(new_rows)], ignore_index=True)
             conn.update(worksheet="Sheet1", data=updated_db)
             st.cache_data.clear()
+            
+            # Change the dynamic ID to force the board to wipe clean
+            st.session_state.fsuffix += 1
+            st.session_state.show_success = True
             st.rerun()
         else:
             st.warning("Please enter an amount in at least one category to save.")
@@ -215,7 +227,7 @@ chart_col, hist_col = st.columns(2)
 
 with chart_col:
     st.write(f"**Expense Breakdown ({start_date.strftime('%b %d')} - {end_date.strftime('%b %d')})**")
-    if not baseline_expense_log.empty:
+    if not baseline_expense_log.empty and total_baseline_expenses > 0:
         fig = px.pie(baseline_expense_log, names="Category", values="Amount", hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
         st.plotly_chart(fig)
     else:
