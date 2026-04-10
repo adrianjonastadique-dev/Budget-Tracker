@@ -148,7 +148,6 @@ else:
 
 def get_cycle_sum(cat):
     val = cycle_log[cycle_log["Category"] == cat]["Amount"].sum()
-    # Returns None instead of 0.0 so the input box stays completely blank
     return float(val) if val > 0 else None
 
 # ==========================================
@@ -319,8 +318,17 @@ st.write("---")
 st.write("### 📋 Expense Summary")
 
 if pie_data:
-    # Convert active pie_data into a clean, sorted dataframe
+    # Convert active pie_data into a clean dataframe and sort it
     summary_df = pd.DataFrame(pie_data).sort_values(by="Amount", ascending=False)
+    
+    # Calculate the total of all items in the pie_data
+    total_expenditure = summary_df["Amount"].sum()
+    
+    # Create a 'Total' row and append it to the bottom
+    total_row = pd.DataFrame([{"Category": "Total Expenditure", "Amount": total_expenditure}])
+    summary_df = pd.concat([summary_df, total_row], ignore_index=True)
+    
+    # Apply currency formatting to everything, including the new total row
     summary_df["Amount"] = summary_df["Amount"].apply(lambda x: f"₱ {x:,.2f}")
     
     # Hide the index for a cleaner look
