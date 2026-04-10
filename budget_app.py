@@ -1,5 +1,39 @@
 import streamlit as st
 import pandas as pd
+import streamlit as st
+
+# --- PASTE THIS BLOCK AT THE TOP ---
+st.markdown("""
+    <style>
+    /* Main background tweak */
+    .stApp { background-color: #FFFFFF; }
+    
+    /* Apple-style Metric Cards */
+    div[data-testid="stMetric"] {
+        background-color: #FFFFFF;
+        border: 1px solid #F0F2F6;
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    }
+    
+    /* Clean Sidebar */
+    section[data-testid="stSidebar"] {
+        background-color: #F5F5F7;
+        border-right: 1px solid #E5E5E7;
+    }
+
+    /* Modern Buttons */
+    .stButton>button {
+        border-radius: 8px;
+        background-color: #007AFF;
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 import plotly.express as px
 import datetime
 import calendar
