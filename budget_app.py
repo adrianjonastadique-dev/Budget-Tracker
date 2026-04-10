@@ -153,6 +153,9 @@ def get_cycle_sum(cat):
 # ==========================================
 # --- 4. THE STATIC CYCLE LEDGER ---
 # ==========================================
+# Fetch existing Emergency Spend itemized rows for this cycle
+emg_entries = cycle_log[cycle_log["Category"] == "Emergency Spend"]
+
 if st.session_state.get("loaded_date_range") != (start_date, end_date):
     st.session_state["loaded_date_range"] = (start_date, end_date)
     st.session_state["c_Hou"] = get_cycle_sum("Housing")
@@ -167,8 +170,17 @@ if st.session_state.get("loaded_date_range") != (start_date, end_date):
     st.session_state["c_Inv"] = get_cycle_sum("Investments")
     st.session_state["c_Tra"] = get_cycle_sum("Transportation")
     st.session_state["c_Lei"] = get_cycle_sum("Leisure")
-    st.session_state["c_Emg"] = get_cycle_sum("Emergency Spend")
     st.session_state["c_Ext"] = get_cycle_sum("Extra Income")
+    
+    # Pre-load itemized Emergency Entries if they exist, otherwise default to 1 blank row
+    st.session_state["emg_count"] = max(1, len(emg_entries))
+    for i in range(st.session_state["emg_count"]):
+        if i < len(emg_entries):
+            st.session_state[f"c_Emg_desc_{i}"] = emg_entries.iloc[i]["Description"]
+            st.session_state[f"c_Emg_amt_{i}"] = float(emg_entries.iloc[i]["Amount"])
+        else:
+            st.session_state[f"c_Emg_desc_{i}"] = ""
+            st.session_state[f"c_Emg_amt_{i}"] = None
 
 st.divider()
 st.subheader(f"🧾 {selected_bucket_name} Ledger")
@@ -193,12 +205,24 @@ with col2:
     st.number_input("🍔 Dining Out", step=500.0, key="c_Lei")
     
 st.write("")
-st.write("**🚨 Unplanned & Extra**")
-c_ext1, c_ext2 = st.columns(2)
-with c_ext1:
-    st.number_input("🚨 Emergency Spend", step=500.0, key="c_Emg")
-with c_ext2:
-    st.number_input("💰 Extra / Unexpected Income", step=500.0, key="c_Ext")
+st.write("**💰 Extra / Unexpected Income**")
+st.number_input("Extra Income Amount", step=500.0, key="c_Ext")
+
+st.write("---")
+st.write("**🚨 Emergency Funds (Itemized)**")
+
+# Dynamic Emergency Rows Generator
+for i in range(st.session_state.emg_count):
+    col_d, col_a = st.columns([2, 1])
+    with col_d:
+        st.text_input("Description", key=f"c_Emg_desc_{i}", placeholder="e.g. Medical Bill, Navara Repair...", label_visibility="collapsed" if i > 0 else "visible")
+    with col_a:
+        st.number_input("Amount", step=500.0, key=f"c_Emg_amt_{i}", value=None, label_visibility="collapsed" if i > 0 else "visible")
+
+# The Add Button for Emergency Rows
+if st.button("➕ Add Emergency Expense"):
+    st.session_state.emg_count += 1
+    st.rerun()
 
 st.write("")
 if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_container_width=True):
@@ -229,6 +253,7 @@ if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_c
                 "Amount": float(val)
             })
 
+    # Standard Categories
     append_cat("Housing", "c_Hou")
     append_cat("Electricity", "c_Ele")
     append_cat("Water", "c_Wat")
@@ -241,8 +266,21 @@ if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_c
     append_cat("Investments", "c_Inv")
     append_cat("Transportation", "c_Tra")
     append_cat("Leisure", "c_Lei")
-    append_cat("Emergency Spend", "c_Emg")
     append_cat("Extra Income", "c_Ext", "Extra Income")
+    
+    # Dynamic Emergency Rows Saving Logic
+    for i in range(st.session_state.get("emg_count", 1)):
+        amt = st.session_state.get(f"c_Emg_amt_{i}")
+        if amt is not None and float(amt) > 0:
+            desc = st.session_state.get(f"c_Emg_desc_{i}", "").strip()
+            new_rows.append({
+                "Username": st.session_state.username,
+                "Date": log_date_str,
+                "Type": "Expense",
+                "Category": "Emergency Spend",
+                "Description": desc if desc else "Emergency Spend", # Fallback if left blank
+                "Amount": float(amt)
+            })
     
     if new_rows:
         updated_db = pd.concat([cleaned_db, pd.DataFrame(new_rows)], ignore_index=True)
@@ -263,7 +301,9 @@ def safe_float(val):
     return float(val) if val else 0.0
 
 total_extra_income = safe_float(st.session_state.get("c_Ext"))
-total_emergency = safe_float(st.session_state.get("c_Emg"))
+
+# Calculate total emergency spend by summing all dynamic rows
+total_emergency = sum([safe_float(st.session_state.get(f"c_Emg_amt_{i}")) for i in range(st.session_state.get("emg_count", 1))])
 
 total_baseline_expenses = sum([
     safe_float(st.session_state.get("c_Hou")), safe_float(st.session_state.get("c_Ele")), 
@@ -293,14 +333,17 @@ pie_data = []
 cats = [
     ("Housing", "c_Hou"), ("Electricity", "c_Ele"), ("Water", "c_Wat"), ("Internet", "c_Int"),
     ("Groceries", "c_Gro"), ("Business Ops", "c_Bus"), ("Car Payment", "c_Car"), ("Credit Cards", "c_Cre"),
-    ("Subscriptions", "c_Sub"), ("Investments", "c_Inv"), ("Transportation", "c_Tra"), ("Leisure", "c_Lei"),
-    ("Emergency Spend", "c_Emg")
+    ("Subscriptions", "c_Sub"), ("Investments", "c_Inv"), ("Transportation", "c_Tra"), ("Leisure", "c_Lei")
 ]
 
 for name, key in cats:
     val = safe_float(st.session_state.get(key))
     if val > 0:
         pie_data.append({"Category": name, "Amount": val})
+
+# Append aggregate emergency data to the pie chart
+if total_emergency > 0:
+    pie_data.append({"Category": "Emergency Spend", "Amount": total_emergency})
 
 if pie_data:
     fig = px.pie(pd.DataFrame(pie_data), names="Category", values="Amount", hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
