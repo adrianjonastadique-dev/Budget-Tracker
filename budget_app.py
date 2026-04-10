@@ -1,7 +1,5 @@
 import streamlit as st
 import pandas as pd
-import streamlit as st
-
 # --- PASTE THIS BLOCK AT THE TOP ---
 st.markdown("""
     <style>
