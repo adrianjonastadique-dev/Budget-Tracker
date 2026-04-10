@@ -88,58 +88,101 @@ else:
     this_month_log = user_log
 
 # ==========================================
-# --- 3. LIVE TRANSACTION LOGGER ---
+# --- 3. LIVE TRANSACTION GRID ---
 # ==========================================
 st.title("💸 Smart Finance Tracker")
-st.subheader("🧾 Log Transaction")
-
-EXPENSE_CATS = [
-    "Housing", "Electricity", "Water", "Internet", "Groceries", 
-    "Business Ops", "Car Payment", "Credit Cards", "Subscriptions", 
-    "Investments", "Transportation", "Leisure", "Misc"
-]
+st.subheader("🧾 Log Transactions")
 
 with st.form("transaction_form", clear_on_submit=True):
-    c1, c2 = st.columns([1, 2])
-    with c1: 
-        t_date = st.date_input("Date", datetime.date.today())
-        t_type = st.radio("Type", ["Expense", "Extra Income"], horizontal=True)
-    with c2:
-        t_cat = st.selectbox("Category", ["Bonus/Gift", "Refund", "Other"] if t_type == "Extra Income" else EXPENSE_CATS)
-        t_desc = st.text_input("Description (Optional)")
-        t_amount = st.number_input("Amount (₱)", min_value=0.0, step=100.0)
+    entry_date = st.date_input("📅 Date", datetime.date.today())
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write("**🏡 Core Living**")
+        housing = st.number_input("🏠 Rent / Mortgage", value=None, step=500.0)
+        electricity = st.number_input("⚡ Electricity", value=None, step=500.0)
+        water = st.number_input("💧 Water", value=None, step=100.0)
+        internet = st.number_input("🌐 Internet", value=None, step=100.0)
+        groceries = st.number_input("🛒 Groceries", value=None, step=500.0)
+        business_ops = st.number_input("⚙️ Business Ops", value=None, step=500.0)
+
+    with col2:
+        st.write("**💳 Debt, Subs & Lifestyle**")
+        car_payment = st.number_input("🚘 Car Payment", value=None, step=1000.0)
+        credit_card = st.number_input("💳 Credit Cards", value=None, step=500.0)
+        subscriptions = st.number_input("📺 Subscriptions", value=None, step=100.0)
+        investments = st.number_input("📈 Investments", value=None, step=500.0)
+        transpo = st.number_input("🚗 Gas & Auto", value=None, step=500.0)
+        leisure = st.number_input("🍔 Dining Out", value=None, step=500.0)
         
-    if st.form_submit_button("➕ Save Transaction"):
-        if t_amount > 0:
-            new_entry = pd.DataFrame([{
-                "Username": st.session_state.username,
-                "Date": t_date.strftime("%Y-%m-%d"),
-                "Type": t_type,
-                "Category": t_cat,
-                "Description": t_desc,
-                "Amount": t_amount
-            }])
-            updated_db = pd.concat([global_db, new_entry], ignore_index=True)
+    st.divider()
+    st.write("**🚨 Unplanned & Extra**")
+    c_ext1, c_ext2 = st.columns(2)
+    with c_ext1:
+        emergency_spend = st.number_input("🚨 Emergency Spend", value=None, step=500.0)
+    with c_ext2:
+        extra_income = st.number_input("💰 Extra / Unexpected Income", value=None, step=500.0)
+
+    if st.form_submit_button("➕ Save Transactions"):
+        new_rows = []
+        date_str = entry_date.strftime("%Y-%m-%d")
+        
+        # Helper function to silently build the transaction list
+        def add_tx(cat, amt, tx_type="Expense"):
+            if amt is not None and amt > 0:
+                new_rows.append({
+                    "Username": st.session_state.username,
+                    "Date": date_str,
+                    "Type": tx_type,
+                    "Category": cat,
+                    "Description": "",
+                    "Amount": amt
+                })
+                
+        # Scans the grid for any inputs
+        add_tx("Housing", housing)
+        add_tx("Electricity", electricity)
+        add_tx("Water", water)
+        add_tx("Internet", internet)
+        add_tx("Groceries", groceries)
+        add_tx("Business Ops", business_ops)
+        add_tx("Car Payment", car_payment)
+        add_tx("Credit Cards", credit_card)
+        add_tx("Subscriptions", subscriptions)
+        add_tx("Investments", investments)
+        add_tx("Transportation", transpo)
+        add_tx("Leisure", leisure)
+        add_tx("Emergency Spend", emergency_spend)
+        add_tx("Extra Income", extra_income, "Extra Income")
+        
+        if new_rows:
+            updated_db = pd.concat([global_db, pd.DataFrame(new_rows)], ignore_index=True)
             conn.update(worksheet="Sheet1", data=updated_db)
             st.cache_data.clear()
             st.rerun()
         else:
-            st.error("Amount must be greater than zero.")
+            st.warning("Please enter an amount in at least one category to save.")
 
 st.divider()
 
 # ==========================================
 # --- 4. CALCULATIONS & EMERGENCY DRAIN ---
 # ==========================================
-total_logged_income = this_month_log[this_month_log["Type"] == "Extra Income"]["Amount"].sum() if not this_month_log.empty else 0
-total_expenses = this_month_log[this_month_log["Type"] == "Expense"]["Amount"].sum() if not this_month_log.empty else 0
+# Filter to calculate exact cash flow
+extra_income_log = this_month_log[this_month_log["Type"] == "Extra Income"]
+total_extra_income = extra_income_log["Amount"].sum() if not extra_income_log.empty else 0
 
-total_income = base_income + total_logged_income
+expense_log = this_month_log[this_month_log["Type"] == "Expense"]
 
-st.write("### 🚨 Unplanned / Emergency Expenses")
-safe_emergency = st.number_input("Total Emergency Spend this cycle (₱)", min_value=0.0, step=500.0, key="emg")
+# Separate Baseline Expenses and Emergency Spend for clean metrics
+emergency_log = expense_log[expense_log["Category"] == "Emergency Spend"]
+total_emergency = emergency_log["Amount"].sum() if not emergency_log.empty else 0
 
-actual_remaining = total_income - total_expenses - (safe_emergency or 0)
+baseline_expense_log = expense_log[expense_log["Category"] != "Emergency Spend"]
+total_baseline_expenses = baseline_expense_log["Amount"].sum() if not baseline_expense_log.empty else 0
+
+total_income = base_income + total_extra_income
+actual_remaining = total_income - total_baseline_expenses - total_emergency
 
 # ==========================================
 # --- 5. CASH FLOW ANALYTICS ---
@@ -147,18 +190,16 @@ actual_remaining = total_income - total_expenses - (safe_emergency or 0)
 st.subheader("📊 Cash Flow Analysis")
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Total Income", f"₱{total_income:,.2f}")
-m2.metric("Total Expenses", f"₱{total_expenses:,.2f}")
-m3.metric("Emergency Drain", f"₱{(safe_emergency or 0):,.2f}", delta=-float(safe_emergency or 0), delta_color="inverse")
+m2.metric("Baseline Expenses", f"₱{total_baseline_expenses:,.2f}")
+m3.metric("Emergency Drain", f"₱{total_emergency:,.2f}", delta=-float(total_emergency), delta_color="inverse")
 m4.metric("Actual Savings", f"₱{actual_remaining:,.2f}", delta=float(actual_remaining))
 
 chart_col, hist_col = st.columns(2)
 
 with chart_col:
     st.write("**Expense Breakdown**")
-    expense_data = this_month_log[this_month_log["Type"] == "Expense"]
-    
-    if not expense_data.empty:
-        fig = px.pie(expense_data, names="Category", values="Amount", hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
+    if not baseline_expense_log.empty:
+        fig = px.pie(baseline_expense_log, names="Category", values="Amount", hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
         st.plotly_chart(fig)
     else:
         empty_data = pd.DataFrame({"Category": ["Awaiting Data"], "Amount": [1]})
@@ -174,7 +215,7 @@ with hist_col:
             icon = "🟢" if row["Type"] == "Extra Income" else "🔴"
             col_icon, col_desc, col_amt, col_del = st.columns([1, 4, 3, 1])
             with col_icon: st.write(icon)
-            with col_desc: st.write(f"**{row['Category']}**\n{row['Description']}")
+            with col_desc: st.write(f"**{row['Category']}**")
             with col_amt: st.write(f"₱ {row['Amount']:,.2f}")
             with col_del:
                 if st.button("❌", key=f"del_{original_index}"):
