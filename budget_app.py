@@ -71,7 +71,25 @@ with st.sidebar:
     st.success(f"**Baseline Income: ₱{base_income:,.2f}**")
 
 # ==========================================
-# --- 2. FETCH LIVE CLOUD DATA ---
+# --- 2. GLOBAL DATE RANGE FILTER ---
+# ==========================================
+st.title("💸 Smart Finance Tracker")
+
+col_filter, _ = st.columns([1, 2])
+with col_filter:
+    today = datetime.date.today()
+    first_day = today.replace(day=1)
+    # Streamlit returns a tuple of dates when selecting a range
+    selected_dates = st.date_input("📅 Dashboard Date Range (From - To)", value=(first_day, today))
+
+# Safety check: if user clicks only the start date, treat it as a 1-day range
+if len(selected_dates) == 2:
+    start_date, end_date = selected_dates
+else:
+    start_date = end_date = selected_dates[0]
+
+# ==========================================
+# --- 3. FETCH & FILTER CLOUD DATA ---
 # ==========================================
 global_db = conn.read(worksheet="Sheet1", ttl=0).dropna(how="all")
 if "Username" not in global_db.columns:
@@ -80,21 +98,20 @@ if "Username" not in global_db.columns:
 global_db["Date"] = global_db["Date"].astype(str)
 user_log = global_db[global_db["Username"] == st.session_state.username].copy()
 
+# Filter the database using your selected From - To dates
 if not user_log.empty:
-    user_log["Date_Obj"] = pd.to_datetime(user_log["Date"])
-    current_month = datetime.date.today().replace(day=1)
-    this_month_log = user_log[user_log["Date_Obj"].dt.date >= current_month]
+    user_log["Date_Obj"] = pd.to_datetime(user_log["Date"]).dt.date
+    filtered_log = user_log[(user_log["Date_Obj"] >= start_date) & (user_log["Date_Obj"] <= end_date)]
 else:
-    this_month_log = user_log
+    filtered_log = user_log
 
 # ==========================================
-# --- 3. LIVE TRANSACTION GRID ---
+# --- 4. LIVE TRANSACTION GRID ---
 # ==========================================
-st.title("💸 Smart Finance Tracker")
 st.subheader("🧾 Log Transactions")
 
 with st.form("transaction_form", clear_on_submit=True):
-    entry_date = st.date_input("📅 Date", datetime.date.today())
+    entry_date = st.date_input("📅 Date of Transactions", datetime.date.today())
     
     col1, col2 = st.columns(2)
     with col1:
@@ -127,7 +144,7 @@ with st.form("transaction_form", clear_on_submit=True):
         new_rows = []
         date_str = entry_date.strftime("%Y-%m-%d")
         
-        # Helper function to silently build the transaction list
+        # Helper function to compile only filled entries
         def add_tx(cat, amt, tx_type="Expense"):
             if amt is not None and amt > 0:
                 new_rows.append({
@@ -139,7 +156,6 @@ with st.form("transaction_form", clear_on_submit=True):
                     "Amount": amt
                 })
                 
-        # Scans the grid for any inputs
         add_tx("Housing", housing)
         add_tx("Electricity", electricity)
         add_tx("Water", water)
@@ -166,15 +182,13 @@ with st.form("transaction_form", clear_on_submit=True):
 st.divider()
 
 # ==========================================
-# --- 4. CALCULATIONS & EMERGENCY DRAIN ---
+# --- 5. CALCULATIONS & EMERGENCY DRAIN ---
 # ==========================================
-# Filter to calculate exact cash flow
-extra_income_log = this_month_log[this_month_log["Type"] == "Extra Income"]
+extra_income_log = filtered_log[filtered_log["Type"] == "Extra Income"]
 total_extra_income = extra_income_log["Amount"].sum() if not extra_income_log.empty else 0
 
-expense_log = this_month_log[this_month_log["Type"] == "Expense"]
+expense_log = filtered_log[filtered_log["Type"] == "Expense"]
 
-# Separate Baseline Expenses and Emergency Spend for clean metrics
 emergency_log = expense_log[expense_log["Category"] == "Emergency Spend"]
 total_emergency = emergency_log["Amount"].sum() if not emergency_log.empty else 0
 
@@ -185,7 +199,7 @@ total_income = base_income + total_extra_income
 actual_remaining = total_income - total_baseline_expenses - total_emergency
 
 # ==========================================
-# --- 5. CASH FLOW ANALYTICS ---
+# --- 6. CASH FLOW ANALYTICS ---
 # ==========================================
 st.subheader("📊 Cash Flow Analysis")
 m1, m2, m3, m4 = st.columns(4)
@@ -197,7 +211,7 @@ m4.metric("Actual Savings", f"₱{actual_remaining:,.2f}", delta=float(actual_re
 chart_col, hist_col = st.columns(2)
 
 with chart_col:
-    st.write("**Expense Breakdown**")
+    st.write(f"**Expense Breakdown ({start_date.strftime('%b %d')} - {end_date.strftime('%b %d')})**")
     if not baseline_expense_log.empty:
         fig = px.pie(baseline_expense_log, names="Category", values="Amount", hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
         st.plotly_chart(fig)
@@ -208,14 +222,14 @@ with chart_col:
         st.plotly_chart(fig)
 
 with hist_col:
-    st.write("**☁️ Cloud Ledger (This Month)**")
-    if not this_month_log.empty:
-        display_log = this_month_log.sort_values(by="Date", ascending=False)
+    st.write(f"**☁️ Cloud Ledger ({start_date.strftime('%b %d')} - {end_date.strftime('%b %d')})**")
+    if not filtered_log.empty:
+        display_log = filtered_log.sort_values(by="Date", ascending=False)
         for original_index, row in display_log.iterrows():
             icon = "🟢" if row["Type"] == "Extra Income" else "🔴"
             col_icon, col_desc, col_amt, col_del = st.columns([1, 4, 3, 1])
             with col_icon: st.write(icon)
-            with col_desc: st.write(f"**{row['Category']}**")
+            with col_desc: st.write(f"**{row['Category']}**\n{row['Date']}")
             with col_amt: st.write(f"₱ {row['Amount']:,.2f}")
             with col_del:
                 if st.button("❌", key=f"del_{original_index}"):
@@ -224,10 +238,10 @@ with hist_col:
                     st.cache_data.clear()
                     st.rerun()
     else:
-        st.info("No transactions logged this month.")
+        st.info("No transactions logged in this range.")
 
 # ==========================================
-# --- 6. SINKING FUNDS & GOALS ---
+# --- 7. SINKING FUNDS & GOALS ---
 # ==========================================
 st.write("---")
 st.write("### 🎯 Custom Sinking Funds & Goals")
