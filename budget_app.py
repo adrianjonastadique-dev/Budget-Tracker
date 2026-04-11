@@ -385,7 +385,39 @@ else:
                     "Amount": float(val),
                     "Cycle_Mode": cycle_type
                 })
-
+# If viewing Bi-monthly, but the database holds Monthly or Weekly records, show the error and hide the Sync button.
+if cycle_type == "Bi-Monthly" and ("Monthly" in modes_used or "Weekly" in modes_used):
+    st.error("❌ ** WARNING: To protect your detailed records, please edit this data in the Weekly or Bi-Monthly view instead of the Monthly view.")
+else:
+    if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_container_width=True):
+        form_cats = [
+            "Housing", "Electricity", "Water", "Internet", "Groceries", "Business Ops", 
+            "Car Payment", "Credit Cards", "Subscriptions", "Investments", "Transportation", 
+            "Leisure", "Emergency Spend", "Extra Income"
+        ]
+        
+        mask = ~((global_db["Username"] == st.session_state.username) & 
+                 (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= start_date) & 
+                 (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= end_date) & 
+                 (global_db["Category"].isin(form_cats)))
+        cleaned_db = global_db[mask]
+        
+        new_rows = []
+        log_date_str = start_date.strftime("%Y-%m-%d")
+        
+        def append_cat(cat_name, state_key, tx_type="Expense"):
+            val = st.session_state.get(state_key)
+            if val is not None and float(val) > 0:
+                new_rows.append({
+                    "Username": st.session_state.username,
+                    "Date": log_date_str,
+                    "Type": tx_type,
+                    "Category": cat_name,
+                    "Description": "Consolidated Cycle Log",
+                    "Amount": float(val),
+                    "Cycle_Mode": cycle_type
+                })
+        
         append_cat("Housing", "c_Hou")
         append_cat("Electricity", "c_Ele")
         append_cat("Water", "c_Wat")
