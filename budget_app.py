@@ -5,7 +5,7 @@ import datetime
 import calendar
 import time
 import uuid
-import random # Add this for the Math CAPTCHA
+import random
 from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(page_title="Smart Budget", layout="wide")
@@ -28,22 +28,17 @@ if "budget_auth" not in st.session_state:
     st.session_state.budget_auth = False
 
 # ==========================================
-# --- SECURE LOGIN & PROFILE LOAD ---
-# ==========================================
-# ==========================================
 # --- SECURE LOGIN & REGISTRATION ---
 # ==========================================
 if not st.session_state.budget_auth:
     st.title("💼 Smart Finance Tracker")
     
-    # Create the Login / Register Tabs
     tab_login, tab_register = st.tabs(["🔑 Secure Login", "📝 Create Account"])
     
     # --- TAB 1: LOGIN ---
     with tab_login:
         st.info("Enter your Client ID to access your financial dashboard.")
         
-        # Invisible Honeypot Trap
         st.markdown(
             """
             <style>
@@ -92,16 +87,21 @@ if not st.session_state.budget_auth:
                         st.session_state.username = entered_user.strip()
                         st.session_state.session_id = new_session_id
                         
-                        income_cols = ["Pay_Frequency", "Inc_Weekly", "Inc_BiMonth_1", "Inc_BiMonth_2", "Inc_Monthly", "Side_Hustle"]
+                        # Load 2-Income Household columns
+                        income_cols = [
+                            "Pay_Frequency", "Inc_Weekly", "Inc_BiMonth_1", "Inc_BiMonth_2", "Inc_Monthly",
+                            "S_Pay_Frequency", "S_Inc_Weekly", "S_Inc_BiMonth_1", "S_Inc_BiMonth_2", "S_Inc_Monthly",
+                            "Side_Hustle"
+                        ]
                         for col in income_cols:
                             if col in user_match.columns:
                                 val = user_match.iloc[0][col]
                                 if pd.isna(val):
-                                    st.session_state[col] = "Once a Month" if col == "Pay_Frequency" else 0.0
+                                    st.session_state[col] = "Monthly" if "Frequency" in col else 0.0
                                 else:
                                     st.session_state[col] = val
                             else:
-                                st.session_state[col] = "Once a Month" if col == "Pay_Frequency" else 0.0
+                                st.session_state[col] = "Monthly" if "Frequency" in col else 0.0
 
                         st.success("✅ Login successful!")
                         time.sleep(0.5) 
@@ -119,7 +119,6 @@ if not st.session_state.budget_auth:
         new_pwd = st.text_input("Choose a Password", type="password", key="reg_pwd")
         confirm_pwd = st.text_input("Confirm Password", type="password", key="reg_confirm")
         
-        # Math CAPTCHA Generation
         if "captcha_a" not in st.session_state:
             st.session_state.captcha_a = random.randint(1, 10)
             st.session_state.captcha_b = random.randint(1, 10)
@@ -136,32 +135,33 @@ if not st.session_state.budget_auth:
                     try:
                         users_db = conn.read(worksheet="Users", ttl=600)
                         
-                        # Check if username already exists
                         if "Username" in users_db.columns and new_user.strip() in users_db["Username"].astype(str).values:
                             st.error("❌ Username already exists. Please choose another.")
                         else:
-                            # Build the new user profile row
                             new_profile = {
                                 "Username": new_user.strip(),
                                 "Password": new_pwd.strip(),
                                 "Session_ID": "",
                                 "Join_Date": datetime.date.today().strftime("%Y-%m-%d"),
-                                "Pay_Frequency": "Once a Month",
+                                "Pay_Frequency": "Monthly",
                                 "Inc_Weekly": 0.0,
                                 "Inc_BiMonth_1": 0.0,
                                 "Inc_BiMonth_2": 0.0,
                                 "Inc_Monthly": 0.0,
+                                "S_Pay_Frequency": "Monthly",
+                                "S_Inc_Weekly": 0.0,
+                                "S_Inc_BiMonth_1": 0.0,
+                                "S_Inc_BiMonth_2": 0.0,
+                                "S_Inc_Monthly": 0.0,
                                 "Side_Hustle": 0.0
                             }
                             
-                            # Append to database and sync
                             updated_users = pd.concat([users_db, pd.DataFrame([new_profile])], ignore_index=True)
                             conn.update(worksheet="Users", data=updated_users)
-                            st.cache_data.clear() # Clear cache to recognize the new user instantly
+                            st.cache_data.clear() 
                             
                             st.success("✅ Account created successfully! You can now switch to the Login tab.")
                             
-                            # Reroll the CAPTCHA for security
                             st.session_state.captcha_a = random.randint(1, 10)
                             st.session_state.captcha_b = random.randint(1, 10)
                     except Exception as e:
@@ -182,66 +182,126 @@ with st.sidebar:
     st.divider()
     st.header("💰 Income Engine")
     
-    saved_freq = st.session_state.get("Pay_Frequency", "Once a Month")
-    if saved_freq not in ["Weekly", "Bi-Monthly", "Once a Month"]:
-        saved_freq = "Once a Month"
+    tab_primary, tab_secondary = st.tabs(["Primary", "Secondary"])
+    
+    # --- PRIMARY INCOME ---
+    with tab_primary:
+        saved_freq = st.session_state.get("Pay_Frequency", "Monthly")
+        if saved_freq not in ["Weekly", "Bi-Monthly", "Monthly"]:
+            saved_freq = "Monthly"
+            
+        freq_idx = ["Weekly", "Bi-Monthly", "Monthly"].index(saved_freq)
+        p_salary_type = st.radio("Pay Frequency:", ["Weekly", "Bi-Monthly", "Monthly"], index=freq_idx, key="p_freq")
         
-    freq_idx = ["Weekly", "Bi-Monthly", "Once a Month"].index(saved_freq)
-    salary_type = st.radio("Pay Frequency:", ["Weekly", "Bi-Monthly", "Once a Month"], index=freq_idx)
-    
-    inc_w = float(st.session_state.get("Inc_Weekly", 0.0))
-    inc_b1 = float(st.session_state.get("Inc_BiMonth_1", 0.0))
-    inc_b2 = float(st.session_state.get("Inc_BiMonth_2", 0.0))
-    inc_m = float(st.session_state.get("Inc_Monthly", 0.0))
+        inc_w = float(st.session_state.get("Inc_Weekly", 0.0))
+        inc_b1 = float(st.session_state.get("Inc_BiMonth_1", 0.0))
+        inc_b2 = float(st.session_state.get("Inc_BiMonth_2", 0.0))
+        inc_m = float(st.session_state.get("Inc_Monthly", 0.0))
+        
+        current_w, current_b1, current_b2, current_m = inc_w, inc_b1, inc_b2, inc_m
+
+        if p_salary_type == "Weekly":
+            with st.expander("📝 Enter Weekly Pay", expanded=True):
+                current_w = st.number_input("Average Weekly Net (₱)", value=inc_w, min_value=0.0, step=500.0, key="p_inc_w")
+                p_base_salary = current_w * 4 
+        elif p_salary_type == "Bi-Monthly":
+            with st.expander("📝 Enter Bi-Monthly Paychecks", expanded=True):
+                current_b1 = st.number_input("1st Paycheck (₱)", value=inc_b1, min_value=0.0, step=1000.0, key="p_inc_b1")
+                current_b2 = st.number_input("2nd Paycheck (₱)", value=inc_b2, min_value=0.0, step=1000.0, key="p_inc_b2")
+                p_base_salary = current_b1 + current_b2
+        else:
+            with st.expander("📝 Enter Monthly Salary", expanded=True):
+                current_m = st.number_input("Total Monthly Net (₱)", value=inc_m, min_value=0.0, step=1000.0, key="p_inc_m")
+                p_base_salary = current_m
+
+    # --- SECONDARY INCOME ---
+    with tab_secondary:
+        s_saved_freq = st.session_state.get("S_Pay_Frequency", "Monthly")
+        if s_saved_freq not in ["Weekly", "Bi-Monthly", "Monthly"]:
+            s_saved_freq = "Monthly"
+            
+        s_freq_idx = ["Weekly", "Bi-Monthly", "Monthly"].index(s_saved_freq)
+        s_salary_type = st.radio("Pay Frequency:", ["Weekly", "Bi-Monthly", "Monthly"], index=s_freq_idx, key="s_freq")
+        
+        s_inc_w = float(st.session_state.get("S_Inc_Weekly", 0.0))
+        s_inc_b1 = float(st.session_state.get("S_Inc_BiMonth_1", 0.0))
+        s_inc_b2 = float(st.session_state.get("S_Inc_BiMonth_2", 0.0))
+        s_inc_m = float(st.session_state.get("S_Inc_Monthly", 0.0))
+        
+        s_current_w, s_current_b1, s_current_b2, s_current_m = s_inc_w, s_inc_b1, s_inc_b2, s_inc_m
+
+        if s_salary_type == "Weekly":
+            with st.expander("📝 Enter Weekly Pay", expanded=True):
+                s_current_w = st.number_input("Average Weekly Net (₱)", value=s_inc_w, min_value=0.0, step=500.0, key="s_inc_w")
+                s_base_salary = s_current_w * 4 
+        elif s_salary_type == "Bi-Monthly":
+            with st.expander("📝 Enter Bi-Monthly Paychecks", expanded=True):
+                s_current_b1 = st.number_input("1st Paycheck (₱)", value=s_inc_b1, min_value=0.0, step=1000.0, key="s_inc_b1")
+                s_current_b2 = st.number_input("2nd Paycheck (₱)", value=s_inc_b2, min_value=0.0, step=1000.0, key="s_inc_b2")
+                s_base_salary = s_current_b1 + s_current_b2
+        else:
+            with st.expander("📝 Enter Monthly Salary", expanded=True):
+                s_current_m = st.number_input("Total Monthly Net (₱)", value=s_inc_m, min_value=0.0, step=1000.0, key="s_inc_m")
+                s_base_salary = s_current_m
+
+    # Global Side Hustle applies to the household
     side = float(st.session_state.get("Side_Hustle", 0.0))
+    side_hustle = st.number_input("Business / Side Hustle (₱)", value=side, min_value=0.0, step=1000.0, key="sh")
     
-    current_w, current_b1, current_b2, current_m = inc_w, inc_b1, inc_b2, inc_m
-
-    if salary_type == "Weekly":
-        with st.expander("📝 Enter Weekly Pay", expanded=True):
-            current_w = st.number_input("Average Weekly Net (₱)", value=inc_w, min_value=0.0, step=500.0)
-            base_salary = current_w * 4 
-    elif salary_type == "Bi-Monthly":
-        with st.expander("📝 Enter Bi-Monthly Paychecks", expanded=True):
-            current_b1 = st.number_input("1st Paycheck (₱)", value=inc_b1, min_value=0.0, step=1000.0)
-            current_b2 = st.number_input("2nd Paycheck (₱)", value=inc_b2, min_value=0.0, step=1000.0)
-            base_salary = current_b1 + current_b2
-    else:
-        with st.expander("📝 Enter Monthly Salary", expanded=True):
-            current_m = st.number_input("Total Monthly Net (₱)", value=inc_m, min_value=0.0, step=1000.0)
-            base_salary = current_m
-
-    side_hustle = st.number_input("Business / Side Hustle (₱)", value=side, min_value=0.0, step=1000.0)
-    base_income = base_salary + side_hustle
+    # Calculate Total Household Income
+    base_income = p_base_salary + s_base_salary + side_hustle
     
     st.success(f"**Total Monthly Income: ₱{base_income:,.2f}**")
     
     if st.button("💾 Save Income Profile", use_container_width=True):
         try:
-            users_db = global_db = conn.read(worksheet="Sheet1", ttl=600).dropna(how="all")
+            users_db = conn.read(worksheet="Users", ttl=600)
             row_idx = users_db.index[users_db["Username"].astype(str) == st.session_state.username].tolist()[0]
             
-            income_cols = ["Pay_Frequency", "Inc_Weekly", "Inc_BiMonth_1", "Inc_BiMonth_2", "Inc_Monthly", "Side_Hustle"]
+            income_cols = [
+                "Pay_Frequency", "Inc_Weekly", "Inc_BiMonth_1", "Inc_BiMonth_2", "Inc_Monthly",
+                "S_Pay_Frequency", "S_Inc_Weekly", "S_Inc_BiMonth_1", "S_Inc_BiMonth_2", "S_Inc_Monthly",
+                "Side_Hustle"
+            ]
             for col in income_cols:
                 if col not in users_db.columns:
-                    users_db[col] = 0.0 if col != "Pay_Frequency" else "Once a Month"
+                    users_db[col] = 0.0 if "Frequency" not in col else "Monthly"
             
-            users_db.at[row_idx, "Pay_Frequency"] = salary_type
+            # Save Primary
+            users_db.at[row_idx, "Pay_Frequency"] = p_salary_type
             users_db.at[row_idx, "Inc_Weekly"] = current_w
             users_db.at[row_idx, "Inc_BiMonth_1"] = current_b1
             users_db.at[row_idx, "Inc_BiMonth_2"] = current_b2
             users_db.at[row_idx, "Inc_Monthly"] = current_m
+            
+            # Save Secondary
+            users_db.at[row_idx, "S_Pay_Frequency"] = s_salary_type
+            users_db.at[row_idx, "S_Inc_Weekly"] = s_current_w
+            users_db.at[row_idx, "S_Inc_BiMonth_1"] = s_current_b1
+            users_db.at[row_idx, "S_Inc_BiMonth_2"] = s_current_b2
+            users_db.at[row_idx, "S_Inc_Monthly"] = s_current_m
+            
+            # Save Global
             users_db.at[row_idx, "Side_Hustle"] = side_hustle
             
             conn.update(worksheet="Users", data=users_db)
             
-            st.session_state["Pay_Frequency"] = salary_type
+            # Update session state
+            st.session_state["Pay_Frequency"] = p_salary_type
             st.session_state["Inc_Weekly"] = current_w
             st.session_state["Inc_BiMonth_1"] = current_b1
             st.session_state["Inc_BiMonth_2"] = current_b2
             st.session_state["Inc_Monthly"] = current_m
+            
+            st.session_state["S_Pay_Frequency"] = s_salary_type
+            st.session_state["S_Inc_Weekly"] = s_current_w
+            st.session_state["S_Inc_BiMonth_1"] = s_current_b1
+            st.session_state["S_Inc_BiMonth_2"] = s_current_b2
+            st.session_state["S_Inc_Monthly"] = s_current_m
+            
             st.session_state["Side_Hustle"] = side_hustle
             
+            st.cache_data.clear()
             st.toast("✅ Income Profile Saved to Cloud!")
         except Exception as e:
             st.error(f"Failed to save to database: {e}")
@@ -351,7 +411,6 @@ if active_mode and cycle_type != active_mode:
         updated_db = pd.concat([cleaned_db, pd.DataFrame(new_converted_rows)], ignore_index=True)
         conn.update(worksheet="Sheet1", data=updated_db)
         
-        # Clear UI state so it loads the fresh data
         st.session_state.pop("loaded_date_range", None) 
         st.cache_data.clear()
         st.rerun() 
@@ -384,7 +443,6 @@ if active_mode and cycle_type != active_mode:
         updated_db = pd.concat([cleaned_db, pd.DataFrame(new_converted_rows)], ignore_index=True)
         conn.update(worksheet="Sheet1", data=updated_db)
         
-        # Clear UI state so it loads the fresh data
         st.session_state.pop("loaded_date_range", None)
         st.cache_data.clear()
         st.rerun() 
@@ -397,7 +455,6 @@ if active_mode and cycle_type != active_mode:
 # ==========================================
 # --- 4. THE STATIC CYCLE LEDGER ---
 # ==========================================
-# Reload user_log securely after potential auto-conversion
 global_db = conn.read(worksheet="Sheet1", ttl=600).dropna(how="all")
 global_db["Date"] = pd.to_datetime(global_db["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
 global_db["Amount"] = global_db["Amount"].astype(str).str.replace(r"[^\d.]", "", regex=True)
