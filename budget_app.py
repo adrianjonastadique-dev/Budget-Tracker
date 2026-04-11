@@ -358,7 +358,7 @@ modes_used = month_records["Cycle_Mode"].dropna().unique()
 
 # If viewing Monthly, but the database holds Bi-Monthly or Weekly records, show the error and hide the Sync button.
 if cycle_type == "Monthly" and ("Bi-Monthly" in modes_used or "Weekly" in modes_used):
-    st.error("❌ **Data Inconsistency:** This month contains detailed Bi-Monthly or Weekly records. Modifying the consolidated Monthly total directly would destroy your granular timestamps. Please switch to the specific cycle type above to adjust your expenses.")
+    st.error("❌ **To protect your detailed records, please edit this data in the Weekly or Bi-Monthly view instead of the Monthly view.")
 else:
     if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_container_width=True):
         form_cats = [
