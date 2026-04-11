@@ -235,7 +235,7 @@ bucket_base_income = base_income / income_divisor
 # ==========================================
 # --- 3. SEAMLESS BACKGROUND AUTO-CONVERTER ---
 # ==========================================
-global_db = conn.read(worksheet="Sheet1", ttl=0).dropna(how="all")
+global_db = conn.read(worksheet="Sheet1", ttl=600).dropna(how="all")
 
 if "Username" not in global_db.columns:
     global_db = pd.DataFrame(columns=["Username", "Date", "Type", "Category", "Description", "Amount", "Cycle_Mode"])
@@ -330,7 +330,7 @@ if active_mode and cycle_type != active_mode:
 # --- 4. THE STATIC CYCLE LEDGER ---
 # ==========================================
 # Reload user_log securely after potential auto-conversion
-global_db = conn.read(worksheet="Sheet1", ttl=0).dropna(how="all")
+global_db = conn.read(worksheet="Sheet1", ttl=600).dropna(how="all")
 global_db["Date"] = pd.to_datetime(global_db["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
 global_db["Amount"] = global_db["Amount"].astype(str).str.replace(r"[^\d.]", "", regex=True)
 global_db["Amount"] = pd.to_numeric(global_db["Amount"], errors="coerce").fillna(0.0)
