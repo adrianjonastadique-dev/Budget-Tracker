@@ -602,8 +602,16 @@ with st.expander("👶 Children"):
                 st.session_state.child_names.append(new_child.strip())
                 st.rerun()
                 
-    for child in st.session_state.get("child_names", []):
-        st.write(f"**🧸 {child}**")
+    # Loop over a copy of the list so we can safely remove items
+    for child in list(st.session_state.get("child_names", [])):
+        col_name, col_del = st.columns([4, 1])
+        with col_name:
+            st.write(f"**🧸 {child}**")
+        with col_del:
+            if st.button("❌ Remove", key=f"del_child_{child}", use_container_width=True):
+                st.session_state.child_names.remove(child)
+                st.rerun()
+                
         cc1, cc2 = st.columns(2)
         with cc1:
             st.number_input("Allowance", step=500.0, key=f"c_Child_{child}_Allowance")
