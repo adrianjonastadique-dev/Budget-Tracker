@@ -116,12 +116,12 @@ with st.sidebar:
     st.header("💰 Income Engine")
     
     # Load defaults from database (via session_state)
-    saved_freq = st.session_state.get("Pay_Frequency", "Once a Month")
-    if saved_freq not in ["Weekly", "Bi-Monthly", "Once a Month"]:
+    saved_freq = st.session_state.get("Pay_Frequency", "Monthly")
+    if saved_freq not in ["Weekly", "Bi-Monthly", "Monthly"]:
         saved_freq = "Once a Month"
         
-    freq_idx = ["Weekly", "Bi-Monthly", "Once a Month"].index(saved_freq)
-    salary_type = st.radio("Pay Frequency:", ["Weekly", "Bi-Monthly", "Once a Month"], index=freq_idx)
+    freq_idx = ["Weekly", "Bi-Monthly", "Monthly"].index(saved_freq)
+    salary_type = st.radio("Pay Frequency:", ["Weekly", "Bi-Monthly", "Monthly"], index=freq_idx)
     
     # Fetch separated values
     inc_w = float(st.session_state.get("Inc_Weekly", 0.0))
