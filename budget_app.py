@@ -511,6 +511,7 @@ def get_cycle_sum(cat):
 emg_entries = cycle_log[cycle_log["Category"] == "Emergency Spend"]
 ext_entries = cycle_log[cycle_log["Category"] == "Extra Income"]
 child_entries = cycle_log[cycle_log["Category"] == "Children"]
+pet_entries = cycle_log[cycle_log["Category"] == "Pets"]
 
 if st.session_state.get("loaded_date_range") != (start_date, end_date):
     st.session_state["loaded_date_range"] = (start_date, end_date)
@@ -557,12 +558,30 @@ if st.session_state.get("loaded_date_range") != (start_date, end_date):
     st.session_state["child_names"] = child_names
     
     for name in child_names:
-        for exp_type in ["Allowance", "Tuition", "Check up", "Activities", "Toys", "Clothing"]:
+        for exp_type in ["Allowance", "Tuition", "Check up", "Activities", "Toys", "Clothing", "Other Supplies"]:
             match = child_entries[child_entries["Description"] == f"{name} - {exp_type}"]
             if not match.empty:
                 st.session_state[f"c_Child_{name}_{exp_type}"] = float(match.iloc[0]["Amount"])
             else:
                 st.session_state[f"c_Child_{name}_{exp_type}"] = None
+
+    # Preload Dynamic Pets profiles
+    pet_names = []
+    for desc in pet_entries["Description"]:
+        if " - " in desc:
+            name = desc.split(" - ")[0]
+            if name not in pet_names:
+                pet_names.append(name)
+    st.session_state["pet_names"] = pet_names
+
+    for name in pet_names:
+        for exp_type in ["Food and Treats", "Check up", "Grooming", "Toys", "Clothing", "Other Supplies"]:
+            match = pet_entries[pet_entries["Description"] == f"{name} - {exp_type}"]
+            if not match.empty:
+                st.session_state[f"c_Pet_{name}_{exp_type}"] = float(match.iloc[0]["Amount"])
+            else:
+                st.session_state[f"c_Pet_{name}_{exp_type}"] = None
+
 
 st.divider()
 st.subheader(f"🧾 {selected_bucket_name} Ledger")
@@ -602,7 +621,6 @@ with st.expander("👶 Children"):
                 st.session_state.child_names.append(new_child.strip())
                 st.rerun()
                 
-    # Loop over a copy of the list so we can safely remove items
     for child in list(st.session_state.get("child_names", [])):
         col_name, col_del = st.columns([4, 1])
         with col_name:
@@ -617,10 +635,43 @@ with st.expander("👶 Children"):
             st.number_input("Allowance", step=500.0, key=f"c_Child_{child}_Allowance")
             st.number_input("Tuition", step=1000.0, key=f"c_Child_{child}_Tuition")
             st.number_input("Check up", step=500.0, key=f"c_Child_{child}_Check up")
+            st.number_input("Other Supplies", step=500.0, key=f"c_Child_{child}_Other Supplies", help="e.g. Diapers, Wipes, School Projects")
         with cc2:
             st.number_input("Activities", step=500.0, key=f"c_Child_{child}_Activities")
             st.number_input("Toys", step=500.0, key=f"c_Child_{child}_Toys")
             st.number_input("Clothing", step=500.0, key=f"c_Child_{child}_Clothing")
+        st.divider()
+
+with st.expander("🐾 Pets"):
+    col_add_p1, col_add_p2 = st.columns([3, 1])
+    with col_add_p1:
+        new_pet = st.text_input("Pet's Name", key="new_pet_input", label_visibility="collapsed", placeholder="Enter Pet's Name")
+    with col_add_p2:
+        if st.button("➕ Add Pet", use_container_width=True):
+            if new_pet and new_pet not in st.session_state.get("pet_names", []):
+                if "pet_names" not in st.session_state:
+                    st.session_state["pet_names"] = []
+                st.session_state.pet_names.append(new_pet.strip())
+                st.rerun()
+                
+    for pet in list(st.session_state.get("pet_names", [])):
+        col_name, col_del = st.columns([4, 1])
+        with col_name:
+            st.write(f"**🐕 {pet}**")
+        with col_del:
+            if st.button("❌ Remove", key=f"del_pet_{pet}", use_container_width=True):
+                st.session_state.pet_names.remove(pet)
+                st.rerun()
+                
+        pc1, pc2 = st.columns(2)
+        with pc1:
+            st.number_input("Food and Treats", step=500.0, key=f"c_Pet_{pet}_Food and Treats")
+            st.number_input("Check up", step=500.0, key=f"c_Pet_{pet}_Check up")
+            st.number_input("Other Supplies", step=500.0, key=f"c_Pet_{pet}_Other Supplies", help="e.g. Wipes, Diapers, Litter, Medication")
+        with pc2:
+            st.number_input("Grooming", step=500.0, key=f"c_Pet_{pet}_Grooming")
+            st.number_input("Toys", step=500.0, key=f"c_Pet_{pet}_Toys")
+            st.number_input("Clothing", step=500.0, key=f"c_Pet_{pet}_Clothing")
         st.divider()
 
 with st.expander("💰 Extra / Unexpected Income (Itemized)"):
@@ -653,7 +704,7 @@ if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_c
     form_cats = [
         "Housing", "Electricity", "Water", "Internet", "Groceries", "Business Ops", 
         "Car Payment", "Credit Cards", "Subscriptions", "Investments", "Transportation", 
-        "Leisure", "Emergency Spend", "Extra Income", "Children"
+        "Leisure", "Emergency Spend", "Extra Income", "Children", "Pets"
     ]
     
     mask = ~((global_db["Username"] == st.session_state.username) & 
@@ -693,7 +744,7 @@ if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_c
     
     # Save Dynamic Children Rows
     for child in st.session_state.get("child_names", []):
-        for exp_type in ["Allowance", "Tuition", "Check up", "Activities", "Toys", "Clothing"]:
+        for exp_type in ["Allowance", "Tuition", "Check up", "Activities", "Toys", "Clothing", "Other Supplies"]:
             amt = st.session_state.get(f"c_Child_{child}_{exp_type}")
             if amt is not None and float(amt) > 0:
                 new_rows.append({
@@ -702,6 +753,21 @@ if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_c
                     "Type": "Expense",
                     "Category": "Children",
                     "Description": f"{child} - {exp_type}",
+                    "Amount": float(amt),
+                    "Cycle_Mode": cycle_type
+                })
+
+    # Save Dynamic Pets Rows
+    for pet in st.session_state.get("pet_names", []):
+        for exp_type in ["Food and Treats", "Check up", "Grooming", "Toys", "Clothing", "Other Supplies"]:
+            amt = st.session_state.get(f"c_Pet_{pet}_{exp_type}")
+            if amt is not None and float(amt) > 0:
+                new_rows.append({
+                    "Username": st.session_state.username,
+                    "Date": log_date_str,
+                    "Type": "Expense",
+                    "Category": "Pets",
+                    "Description": f"{pet} - {exp_type}",
                     "Amount": float(amt),
                     "Cycle_Mode": cycle_type
                 })
@@ -759,8 +825,13 @@ total_emergency = sum([safe_float(st.session_state.get(f"c_Emg_amt_{i}")) for i 
 
 total_children = 0.0
 for child in st.session_state.get("child_names", []):
-    for exp_type in ["Allowance", "Tuition", "Check up", "Activities", "Toys", "Clothing"]:
+    for exp_type in ["Allowance", "Tuition", "Check up", "Activities", "Toys", "Clothing", "Other Supplies"]:
         total_children += safe_float(st.session_state.get(f"c_Child_{child}_{exp_type}"))
+
+total_pets = 0.0
+for pet in st.session_state.get("pet_names", []):
+    for exp_type in ["Food and Treats", "Check up", "Grooming", "Toys", "Clothing", "Other Supplies"]:
+        total_pets += safe_float(st.session_state.get(f"c_Pet_{pet}_{exp_type}"))
 
 total_baseline_expenses = sum([
     safe_float(st.session_state.get("c_Hou")), safe_float(st.session_state.get("c_Ele")), 
@@ -769,7 +840,7 @@ total_baseline_expenses = sum([
     safe_float(st.session_state.get("c_Car")), safe_float(st.session_state.get("c_Cre")), 
     safe_float(st.session_state.get("c_Sub")), safe_float(st.session_state.get("c_Inv")),
     safe_float(st.session_state.get("c_Tra")), safe_float(st.session_state.get("c_Lei"))
-]) + total_children
+]) + total_children + total_pets
 
 total_bucket_income = bucket_base_income + total_extra_income
 actual_remaining = total_bucket_income - total_baseline_expenses - total_emergency
@@ -800,6 +871,9 @@ for name, key in cats:
 
 if total_children > 0:
     pie_data.append({"Category": "Children", "Amount": total_children})
+    
+if total_pets > 0:
+    pie_data.append({"Category": "Pets", "Amount": total_pets})
 
 if total_emergency > 0:
     pie_data.append({"Category": "Emergency Spend", "Amount": total_emergency})
