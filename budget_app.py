@@ -384,7 +384,7 @@ else:
                     "Description": "Consolidated Cycle Log",
                     "Amount": float(val),
                     "Cycle_Mode": cycle_type
-                })
+                            
 # If viewing Bi-monthly, but the database holds Monthly or Weekly records, show the error and hide the Sync button.
 if cycle_type == "Bi-Monthly" and ("Monthly" in modes_used or "Weekly" in modes_used):
     st.error("❌ ** WARNING: To protect your detailed records, please edit this data in the Weekly or Bi-Monthly view instead of the Monthly view.")
