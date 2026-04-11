@@ -118,7 +118,7 @@ with st.sidebar:
     # Load defaults from database (via session_state)
     saved_freq = st.session_state.get("Pay_Frequency", "Monthly")
     if saved_freq not in ["Weekly", "Bi-Monthly", "Monthly"]:
-        saved_freq = "Once a Month"
+        saved_freq = "Monthly"
         
     freq_idx = ["Weekly", "Bi-Monthly", "Monthly"].index(saved_freq)
     salary_type = st.radio("Pay Frequency:", ["Weekly", "Bi-Monthly", "Monthly"], index=freq_idx)
@@ -162,7 +162,7 @@ with st.sidebar:
             income_cols = ["Pay_Frequency", "Inc_Weekly", "Inc_BiMonth_1", "Inc_BiMonth_2", "Inc_Monthly", "Side_Hustle"]
             for col in income_cols:
                 if col not in users_db.columns:
-                    users_db[col] = 0.0 if col != "Pay_Frequency" else "Once a Month"
+                    users_db[col] = 0.0 if col != "Pay_Frequency" else "Monthly"
             
             # Update specific columns
             users_db.at[row_idx, "Pay_Frequency"] = salary_type
