@@ -176,7 +176,6 @@ if "show_success" in st.session_state and st.session_state.show_success:
     st.success("✅ Dashboard Snapshot Safely Synced to Cloud!")
     st.session_state.show_success = False
 
-# Initialize UI keys if they don't exist
 if "p_inc_w" not in st.session_state: st.session_state.p_inc_w = float(st.session_state.get("Inc_Weekly", 0.0))
 if "p_inc_b1" not in st.session_state: st.session_state.p_inc_b1 = float(st.session_state.get("Inc_BiMonth_1", 0.0))
 if "p_inc_b2" not in st.session_state: st.session_state.p_inc_b2 = float(st.session_state.get("Inc_BiMonth_2", 0.0))
@@ -186,7 +185,6 @@ if "s_inc_w" not in st.session_state: st.session_state.s_inc_w = float(st.sessio
 if "s_inc_b1" not in st.session_state: st.session_state.s_inc_b1 = float(st.session_state.get("S_Inc_BiMonth_1", 0.0))
 if "s_inc_b2" not in st.session_state: st.session_state.s_inc_b2 = float(st.session_state.get("S_Inc_BiMonth_2", 0.0))
 if "s_inc_m" not in st.session_state: st.session_state.s_inc_m = float(st.session_state.get("S_Inc_Monthly", 0.0))
-
 
 with st.sidebar:
     st.header(f"👤 {st.session_state.username}")
@@ -204,7 +202,6 @@ with st.sidebar:
         freq_idx = ["Weekly", "Bi-Monthly", "Monthly"].index(saved_freq)
         p_salary_type = st.radio("Pay Frequency:", ["Weekly", "Bi-Monthly", "Monthly"], index=freq_idx, key="p_freq")
         
-        # PRIMARY INLINE AUTO-CONVERTER
         if "last_p_freq" not in st.session_state:
             st.session_state.last_p_freq = saved_freq
             
@@ -252,7 +249,6 @@ with st.sidebar:
         s_freq_idx = ["Weekly", "Bi-Monthly", "Monthly"].index(s_saved_freq)
         s_salary_type = st.radio("Pay Frequency:", ["Weekly", "Bi-Monthly", "Monthly"], index=s_freq_idx, key="s_freq")
         
-        # SECONDARY INLINE AUTO-CONVERTER
         if "last_s_freq" not in st.session_state:
             st.session_state.last_s_freq = s_saved_freq
             
@@ -291,11 +287,9 @@ with st.sidebar:
                 s_current_m = st.number_input("Total Monthly Net (₱)", min_value=0.0, step=1000.0, key="s_inc_m")
                 s_base_salary = s_current_m
 
-    # Global Side Hustle applies to the household
     side = float(st.session_state.get("Side_Hustle", 0.0))
     side_hustle = st.number_input("Business / Side Hustle (₱)", value=side, min_value=0.0, step=1000.0, key="sh")
     
-    # Calculate Total Household Income
     base_income = p_base_salary + s_base_salary + side_hustle
     
     st.success(f"**Total Monthly Income: ₱{base_income:,.2f}**")
@@ -314,26 +308,21 @@ with st.sidebar:
                 if col not in users_db.columns:
                     users_db[col] = 0.0 if "Frequency" not in col else "Monthly"
             
-            # Save Primary directly from the UI state
             users_db.at[row_idx, "Pay_Frequency"] = p_salary_type
             users_db.at[row_idx, "Inc_Weekly"] = st.session_state.p_inc_w
             users_db.at[row_idx, "Inc_BiMonth_1"] = st.session_state.p_inc_b1
             users_db.at[row_idx, "Inc_BiMonth_2"] = st.session_state.p_inc_b2
             users_db.at[row_idx, "Inc_Monthly"] = st.session_state.p_inc_m
             
-            # Save Secondary directly from the UI state
             users_db.at[row_idx, "S_Pay_Frequency"] = s_salary_type
             users_db.at[row_idx, "S_Inc_Weekly"] = st.session_state.s_inc_w
             users_db.at[row_idx, "S_Inc_BiMonth_1"] = st.session_state.s_inc_b1
             users_db.at[row_idx, "S_Inc_BiMonth_2"] = st.session_state.s_inc_b2
             users_db.at[row_idx, "S_Inc_Monthly"] = st.session_state.s_inc_m
             
-            # Save Global
             users_db.at[row_idx, "Side_Hustle"] = side_hustle
-            
             conn.update(worksheet="Users", data=users_db)
             
-            # Update background session state to match
             st.session_state["Pay_Frequency"] = p_salary_type
             st.session_state["Inc_Weekly"] = st.session_state.p_inc_w
             st.session_state["Inc_BiMonth_1"] = st.session_state.p_inc_b1
@@ -518,7 +507,10 @@ def get_cycle_sum(cat):
     val = cycle_log[cycle_log["Category"] == cat]["Amount"].sum()
     return float(val) if val > 0 else None
 
+# Fetch dynamic entries
 emg_entries = cycle_log[cycle_log["Category"] == "Emergency Spend"]
+ext_entries = cycle_log[cycle_log["Category"] == "Extra Income"]
+child_entries = cycle_log[cycle_log["Category"] == "Children"]
 
 if st.session_state.get("loaded_date_range") != (start_date, end_date):
     st.session_state["loaded_date_range"] = (start_date, end_date)
@@ -534,8 +526,8 @@ if st.session_state.get("loaded_date_range") != (start_date, end_date):
     st.session_state["c_Inv"] = get_cycle_sum("Investments")
     st.session_state["c_Tra"] = get_cycle_sum("Transportation")
     st.session_state["c_Lei"] = get_cycle_sum("Leisure")
-    st.session_state["c_Ext"] = get_cycle_sum("Extra Income")
     
+    # Preload Emergency Spend
     st.session_state["emg_count"] = max(1, len(emg_entries))
     for i in range(st.session_state["emg_count"]):
         if i < len(emg_entries):
@@ -544,6 +536,33 @@ if st.session_state.get("loaded_date_range") != (start_date, end_date):
         else:
             st.session_state[f"c_Emg_desc_{i}"] = ""
             st.session_state[f"c_Emg_amt_{i}"] = None
+            
+    # Preload Itemized Extra Income
+    st.session_state["ext_count"] = max(1, len(ext_entries))
+    for i in range(st.session_state["ext_count"]):
+        if i < len(ext_entries):
+            st.session_state[f"c_Ext_desc_{i}"] = ext_entries.iloc[i]["Description"]
+            st.session_state[f"c_Ext_amt_{i}"] = float(ext_entries.iloc[i]["Amount"])
+        else:
+            st.session_state[f"c_Ext_desc_{i}"] = ""
+            st.session_state[f"c_Ext_amt_{i}"] = None
+            
+    # Preload Dynamic Children profiles
+    child_names = []
+    for desc in child_entries["Description"]:
+        if " - " in desc:
+            name = desc.split(" - ")[0]
+            if name not in child_names:
+                child_names.append(name)
+    st.session_state["child_names"] = child_names
+    
+    for name in child_names:
+        for exp_type in ["Allowance", "Tuition", "Check up", "Activities", "Toys", "Clothing"]:
+            match = child_entries[child_entries["Description"] == f"{name} - {exp_type}"]
+            if not match.empty:
+                st.session_state[f"c_Child_{name}_{exp_type}"] = float(match.iloc[0]["Amount"])
+            else:
+                st.session_state[f"c_Child_{name}_{exp_type}"] = None
 
 st.divider()
 st.subheader(f"🧾 {selected_bucket_name} Ledger")
@@ -570,9 +589,43 @@ with st.expander("💳 Debt, Subs & Lifestyle"):
         st.number_input("📈 Investments", step=500.0, key="c_Inv")
         st.number_input("🚗 Gas & Auto", step=500.0, key="c_Tra")
         st.number_input("🍔 Dining Out", step=500.0, key="c_Lei")
+        
+with st.expander("👶 Children"):
+    col_add_c1, col_add_c2 = st.columns([3, 1])
+    with col_add_c1:
+        new_child = st.text_input("Child's Name", key="new_child_input", label_visibility="collapsed", placeholder="Enter Child's Name")
+    with col_add_c2:
+        if st.button("➕ Add Child", use_container_width=True):
+            if new_child and new_child not in st.session_state.get("child_names", []):
+                if "child_names" not in st.session_state:
+                    st.session_state["child_names"] = []
+                st.session_state.child_names.append(new_child.strip())
+                st.rerun()
+                
+    for child in st.session_state.get("child_names", []):
+        st.write(f"**🧸 {child}**")
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            st.number_input("Allowance", step=500.0, key=f"c_Child_{child}_Allowance")
+            st.number_input("Tuition", step=1000.0, key=f"c_Child_{child}_Tuition")
+            st.number_input("Check up", step=500.0, key=f"c_Child_{child}_Check up")
+        with cc2:
+            st.number_input("Activities", step=500.0, key=f"c_Child_{child}_Activities")
+            st.number_input("Toys", step=500.0, key=f"c_Child_{child}_Toys")
+            st.number_input("Clothing", step=500.0, key=f"c_Child_{child}_Clothing")
+        st.divider()
 
-with st.expander("💰 Extra / Unexpected Income"):
-    st.number_input("Extra Income Amount", step=500.0, key="c_Ext")
+with st.expander("💰 Extra / Unexpected Income (Itemized)"):
+    for i in range(st.session_state.get("ext_count", 1)):
+        col_d, col_a = st.columns([2, 1])
+        with col_d:
+            st.text_input("Description", key=f"c_Ext_desc_{i}", placeholder="e.g. Sold old phone, Bonus...", label_visibility="collapsed" if i > 0 else "visible")
+        with col_a:
+            st.number_input("Amount", step=500.0, key=f"c_Ext_amt_{i}", value=None, label_visibility="collapsed" if i > 0 else "visible")
+
+    if st.button("➕ Add Extra Income"):
+        st.session_state.ext_count += 1
+        st.rerun()
 
 with st.expander("🚨 Emergency Funds (Itemized)"):
     for i in range(st.session_state.emg_count):
@@ -592,7 +645,7 @@ if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_c
     form_cats = [
         "Housing", "Electricity", "Water", "Internet", "Groceries", "Business Ops", 
         "Car Payment", "Credit Cards", "Subscriptions", "Investments", "Transportation", 
-        "Leisure", "Emergency Spend", "Extra Income"
+        "Leisure", "Emergency Spend", "Extra Income", "Children"
     ]
     
     mask = ~((global_db["Username"] == st.session_state.username) & 
@@ -629,8 +682,38 @@ if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_c
     append_cat("Investments", "c_Inv")
     append_cat("Transportation", "c_Tra")
     append_cat("Leisure", "c_Lei")
-    append_cat("Extra Income", "c_Ext", "Extra Income")
     
+    # Save Dynamic Children Rows
+    for child in st.session_state.get("child_names", []):
+        for exp_type in ["Allowance", "Tuition", "Check up", "Activities", "Toys", "Clothing"]:
+            amt = st.session_state.get(f"c_Child_{child}_{exp_type}")
+            if amt is not None and float(amt) > 0:
+                new_rows.append({
+                    "Username": st.session_state.username,
+                    "Date": log_date_str,
+                    "Type": "Expense",
+                    "Category": "Children",
+                    "Description": f"{child} - {exp_type}",
+                    "Amount": float(amt),
+                    "Cycle_Mode": cycle_type
+                })
+    
+    # Save Dynamic Extra Income Rows
+    for i in range(st.session_state.get("ext_count", 1)):
+        amt = st.session_state.get(f"c_Ext_amt_{i}")
+        if amt is not None and float(amt) > 0:
+            desc = st.session_state.get(f"c_Ext_desc_{i}", "").strip()
+            new_rows.append({
+                "Username": st.session_state.username,
+                "Date": log_date_str,
+                "Type": "Extra Income",
+                "Category": "Extra Income",
+                "Description": desc if desc else "Extra Income",
+                "Amount": float(amt),
+                "Cycle_Mode": cycle_type
+            })
+    
+    # Save Dynamic Emergency Rows
     for i in range(st.session_state.get("emg_count", 1)):
         amt = st.session_state.get(f"c_Emg_amt_{i}")
         if amt is not None and float(amt) > 0:
@@ -663,8 +746,13 @@ st.divider()
 def safe_float(val):
     return float(val) if val else 0.0
 
-total_extra_income = safe_float(st.session_state.get("c_Ext"))
+total_extra_income = sum([safe_float(st.session_state.get(f"c_Ext_amt_{i}")) for i in range(st.session_state.get("ext_count", 1))])
 total_emergency = sum([safe_float(st.session_state.get(f"c_Emg_amt_{i}")) for i in range(st.session_state.get("emg_count", 1))])
+
+total_children = 0.0
+for child in st.session_state.get("child_names", []):
+    for exp_type in ["Allowance", "Tuition", "Check up", "Activities", "Toys", "Clothing"]:
+        total_children += safe_float(st.session_state.get(f"c_Child_{child}_{exp_type}"))
 
 total_baseline_expenses = sum([
     safe_float(st.session_state.get("c_Hou")), safe_float(st.session_state.get("c_Ele")), 
@@ -673,7 +761,7 @@ total_baseline_expenses = sum([
     safe_float(st.session_state.get("c_Car")), safe_float(st.session_state.get("c_Cre")), 
     safe_float(st.session_state.get("c_Sub")), safe_float(st.session_state.get("c_Inv")),
     safe_float(st.session_state.get("c_Tra")), safe_float(st.session_state.get("c_Lei"))
-])
+]) + total_children
 
 total_bucket_income = bucket_base_income + total_extra_income
 actual_remaining = total_bucket_income - total_baseline_expenses - total_emergency
@@ -701,6 +789,9 @@ for name, key in cats:
     val = safe_float(st.session_state.get(key))
     if val > 0:
         pie_data.append({"Category": name, "Amount": val})
+
+if total_children > 0:
+    pie_data.append({"Category": "Children", "Amount": total_children})
 
 if total_emergency > 0:
     pie_data.append({"Category": "Emergency Spend", "Amount": total_emergency})
