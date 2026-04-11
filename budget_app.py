@@ -106,9 +106,6 @@ if not st.session_state.budget_auth:
 # ==========================================
 # --- 1. THE PERMANENT INCOME ENGINE ---
 # ==========================================
-# ==========================================
-# --- 1. THE PERMANENT INCOME ENGINE ---
-# ==========================================
 if "show_success" in st.session_state and st.session_state.show_success:
     st.success("✅ Dashboard Snapshot Safely Synced to Cloud!")
     st.session_state.show_success = False
@@ -358,7 +355,7 @@ modes_used = month_records["Cycle_Mode"].dropna().unique()
 
 # If viewing Monthly, but the database holds Bi-Monthly or Weekly records, show the error and hide the Sync button.
 if cycle_type == "Monthly" and ("Bi-Monthly" in modes_used or "Weekly" in modes_used):
-    st.error("❌ **To protect your detailed records, please edit this data in the Weekly or Bi-Monthly view instead of the Monthly view.")
+    st.error("❌ ** WARNING: To protect your detailed records, please edit this data in the Weekly or Bi-Monthly view instead of the Monthly view.")
 else:
     if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_container_width=True):
         form_cats = [
