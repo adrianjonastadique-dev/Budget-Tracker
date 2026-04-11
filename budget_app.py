@@ -282,8 +282,11 @@ if active_mode and cycle_type != active_mode:
             
         updated_db = pd.concat([cleaned_db, pd.DataFrame(new_converted_rows)], ignore_index=True)
         conn.update(worksheet="Sheet1", data=updated_db)
+        
+        # Clear UI state so it loads the fresh data
+        st.session_state.pop("loaded_date_range", None) 
         st.cache_data.clear()
-        st.rerun() # Instantly restarts script to load the fresh Bi-Monthly math
+        st.rerun() 
         
     elif active_mode == "Bi-Monthly" and cycle_type == "Monthly":
         st.toast("🔄 Auto-consolidating Bi-Monthly data to Monthly...")
@@ -312,8 +315,11 @@ if active_mode and cycle_type != active_mode:
              
         updated_db = pd.concat([cleaned_db, pd.DataFrame(new_converted_rows)], ignore_index=True)
         conn.update(worksheet="Sheet1", data=updated_db)
+        
+        # Clear UI state so it loads the fresh data
+        st.session_state.pop("loaded_date_range", None)
         st.cache_data.clear()
-        st.rerun() # Instantly restarts script to load the combined Monthly total
+        st.rerun() 
         
     elif cycle_type == "Weekly" or active_mode == "Weekly":
         st.error("❌ Seamless conversion is currently only supported between Monthly and Bi-Monthly views. Please clear data manually to switch to Weekly.")
