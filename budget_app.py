@@ -100,7 +100,6 @@ if not st.session_state.budget_auth:
                 st.error(f"🚨 Database error: Ensure the 'Users' tab is set up correctly. Details: {e}")
     st.stop()
 
-
 # ==========================================
 # --- 1. THE INCOME ENGINE (SIDEBAR) ---
 # ==========================================
@@ -190,7 +189,20 @@ bucket_base_income = base_income / income_divisor
 # ==========================================
 # --- 3. FETCH & SCRUB CLOUD DATA ---
 # ==========================================
-st.write("")
+global_db = conn.read(worksheet="Sheet1", ttl=0).dropna(how="all")
+
+# Ensure required columns exist, including our new Cycle_Mode
+if "Username" not in global_db.columns:
+    global_db = pd.DataFrame(columns=["Username", "Date", "Type", "Category", "Description", "Amount", "Cycle_Mode"])
+if "Cycle_Mode" not in global_db.columns:
+    global_db["Cycle_Mode"] = "Monthly"
+
+global_db["Date"] = pd.to_datetime(global_db["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+global_db["Amount"] = global_db["Amount"].astype(str).str.replace(r"[^\d.]", "", regex=True)
+global_db["Amount"] = pd.to_numeric(global_db["Amount"], errors="coerce").fillna(0.0)
+
+user_log = global_db[global_db["Username"] == st.session_state.username].copy()
+
 # Determine the active cycle mode for the whole month
 month_start = datetime.date(selected_year, selected_month, 1)
 month_end = datetime.date(selected_year, selected_month, last_day)
@@ -209,9 +221,10 @@ if not user_log.empty:
     cycle_log = user_log[(user_log["Date_Obj"] >= start_date) & (user_log["Date_Obj"] <= end_date)]
 else:
     cycle_log = user_log
-    # active_cycle_mode remains None as initialized above
-# Protect granular data: Lock the sync button if viewing a different cycle mode
 
+def get_cycle_sum(cat):
+    val = cycle_log[cycle_log["Category"] == cat]["Amount"].sum()
+    return float(val) if val > 0 else None
 
 # ==========================================
 # --- 4. THE STATIC CYCLE LEDGER ---
@@ -288,6 +301,7 @@ if st.button("➕ Add Emergency Expense"):
     st.rerun()
 
 st.write("")
+# Protect granular data: Lock the sync button if viewing a different cycle mode
 if active_cycle_mode and active_cycle_mode != cycle_type:
     st.info(f"🔒 **Read-Only Mode:** This month is being tracked in **{active_cycle_mode}** mode. You are viewing it in **{cycle_type}** mode. Saving is disabled to prevent overwriting your ledger.")
 else:
@@ -359,66 +373,6 @@ else:
         st.cache_data.clear()
         st.session_state.show_success = True
         st.rerun()
-    ] 
-    mask = ~((global_db["Username"] == st.session_state.username) & 
-             (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= start_date) & 
-             (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= end_date) & 
-             (global_db["Category"].isin(form_cats)))
-    cleaned_db = global_db[mask]
-    
-    new_rows = []
-    log_date_str = start_date.strftime("%Y-%m-%d")
-    
-    def append_cat(cat_name, state_key, tx_type="Expense"):
-        val = st.session_state.get(state_key)
-        if val is not None and float(val) > 0:
-            new_rows.append({
-                "Username": st.session_state.username,
-                "Date": log_date_str,
-                "Type": tx_type,
-                "Category": cat_name,
-                "Description": "Consolidated Cycle Log",
-                "Amount": float(val)
-            })
-
-    # Standard Categories
-    append_cat("Housing", "c_Hou")
-    append_cat("Electricity", "c_Ele")
-    append_cat("Water", "c_Wat")
-    append_cat("Internet", "c_Int")
-    append_cat("Groceries", "c_Gro")
-    append_cat("Business Ops", "c_Bus")
-    append_cat("Car Payment", "c_Car")
-    append_cat("Credit Cards", "c_Cre")
-    append_cat("Subscriptions", "c_Sub")
-    append_cat("Investments", "c_Inv")
-    append_cat("Transportation", "c_Tra")
-    append_cat("Leisure", "c_Lei")
-    append_cat("Extra Income", "c_Ext", "Extra Income")
-    
-    # Dynamic Emergency Rows Saving Logic
-    for i in range(st.session_state.get("emg_count", 1)):
-        amt = st.session_state.get(f"c_Emg_amt_{i}")
-        if amt is not None and float(amt) > 0:
-            desc = st.session_state.get(f"c_Emg_desc_{i}", "").strip()
-            new_rows.append({
-                "Username": st.session_state.username,
-                "Date": log_date_str,
-                "Type": "Expense",
-                "Category": "Emergency Spend",
-                "Description": desc if desc else "Emergency Spend", # Fallback if left blank
-                "Amount": float(amt)
-            })
-    
-    if new_rows:
-        updated_db = pd.concat([cleaned_db, pd.DataFrame(new_rows)], ignore_index=True)
-    else:
-        updated_db = cleaned_db 
-        
-    conn.update(worksheet="Sheet1", data=updated_db)
-    st.cache_data.clear()
-    st.session_state.show_success = True
-    st.rerun()
 
 st.divider()
 
