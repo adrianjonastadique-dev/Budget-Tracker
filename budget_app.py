@@ -3,6 +3,8 @@ import pandas as pd
 import plotly.express as px
 import datetime
 import calendar
+import time
+import uuid
 from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(page_title="Smart Budget", layout="wide")
@@ -28,28 +30,79 @@ if "budget_auth" not in st.session_state:
 # ==========================================
 # --- SECURE LOGIN ---
 # ==========================================
+# ==========================================
+# --- SECURE LOGIN ---
+# ==========================================
 if not st.session_state.budget_auth:
     st.title("💼 Smart Finance Tracker")
     st.info("Enter your Client ID to access your financial dashboard.")
+    
+    # Invisible Honeypot Trap
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stTextInput"]:has(input[aria-label="honeypot"]) {
+            display: none;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    honeypot = st.text_input("honeypot", key="hp_input", label_visibility="hidden")
     
     entered_user = st.text_input("Username / Client ID")
     entered_pwd = st.text_input("Password", type="password")
     
     if st.button("Secure Login"):
+        # 1. Bot Check
+        if honeypot:
+            st.error("🤖 Bot activity detected.")
+            st.stop()
+            
+        # 2. Cooldown Check (3 seconds)
+        current_time = time.time()
+        if "last_login_attempt" in st.session_state:
+            if current_time - st.session_state.last_login_attempt < 3:
+                st.warning("⏳ Please wait a few seconds before trying again.")
+                st.stop()
+        st.session_state.last_login_attempt = current_time
+
         if entered_user and entered_pwd:
             try:
-                users_db = conn.read(worksheet="Users", ttl=0).dropna(subset=["Username"])
+                # Fetch users DB
+                users_db = conn.read(worksheet="Users", ttl=0)
+                
+                # Ensure the Session_ID column exists
+                if "Session_ID" not in users_db.columns:
+                    users_db["Session_ID"] = ""
+                    
+                users_db = users_db.dropna(subset=["Username"])
                 user_match = users_db[users_db["Username"].astype(str) == entered_user.strip()]
                 
                 if not user_match.empty and str(user_match.iloc[0]["Password"]).strip() == entered_pwd.strip():
+                    
+                    # 3. Generate New Session ID
+                    new_session_id = str(uuid.uuid4())
+                    
+                    # Update DB with new Session ID
+                    row_idx = users_db.index[users_db["Username"].astype(str) == entered_user.strip()].tolist()[0]
+                    users_db.at[row_idx, "Session_ID"] = new_session_id
+                    conn.update(worksheet="Users", data=users_db)
+                    
+                    # Authorize session
                     st.session_state.budget_auth = True
                     st.session_state.username = entered_user.strip()
+                    st.session_state.session_id = new_session_id
+                    
+                    st.success("✅ Login successful!")
+                    time.sleep(0.5) # Quick pause for UX before reloading
                     st.rerun()
                 else:
                     st.error("❌ Invalid credentials.")
             except Exception as e:
-                st.error("🚨 Database error. Ensure the 'Users' tab is set up correctly in your Budget_DB.")
+                st.error(f"🚨 Database error: Ensure the 'Users' tab is set up correctly. Details: {e}")
     st.stop()
+
 
 # ==========================================
 # --- 1. THE INCOME ENGINE (SIDEBAR) ---
