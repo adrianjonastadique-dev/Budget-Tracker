@@ -88,11 +88,11 @@ if not st.session_state.budget_auth:
                         if col in user_match.columns:
                             val = user_match.iloc[0][col]
                             if pd.isna(val):
-                                st.session_state[col] = "Once a Month" if col == "Pay_Frequency" else 0.0
+                                st.session_state[col] = "Monthly" if col == "Pay_Frequency" else 0.0
                             else:
                                 st.session_state[col] = val
                         else:
-                            st.session_state[col] = "Once a Month" if col == "Pay_Frequency" else 0.0
+                            st.session_state[col] = "Monthly" if col == "Pay_Frequency" else 0.0
 
                     st.success("✅ Login successful!")
                     time.sleep(0.5) 
