@@ -150,7 +150,7 @@ with st.sidebar:
     
     if st.button("💾 Save Income Profile", use_container_width=True):
         try:
-            users_db = cglobal_db = conn.read(worksheet="Sheet1", ttl=600).dropna(how="all"))
+            users_db = global_db = conn.read(worksheet="Sheet1", ttl=600).dropna(how="all")
             row_idx = users_db.index[users_db["Username"].astype(str) == st.session_state.username].tolist()[0]
             
             income_cols = ["Pay_Frequency", "Inc_Weekly", "Inc_BiMonth_1", "Inc_BiMonth_2", "Inc_Monthly", "Side_Hustle"]
