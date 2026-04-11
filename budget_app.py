@@ -512,6 +512,8 @@ emg_entries = cycle_log[cycle_log["Category"] == "Emergency Spend"]
 ext_entries = cycle_log[cycle_log["Category"] == "Extra Income"]
 child_entries = cycle_log[cycle_log["Category"] == "Children"]
 pet_entries = cycle_log[cycle_log["Category"] == "Pets"]
+inv_entries = cycle_log[cycle_log["Category"] == "Investments"]
+hob_entries = cycle_log[cycle_log["Category"] == "Hobbies"]
 
 if st.session_state.get("loaded_date_range") != (start_date, end_date):
     st.session_state["loaded_date_range"] = (start_date, end_date)
@@ -524,11 +526,10 @@ if st.session_state.get("loaded_date_range") != (start_date, end_date):
     st.session_state["c_Car"] = get_cycle_sum("Car Payment")
     st.session_state["c_Cre"] = get_cycle_sum("Credit Cards")
     st.session_state["c_Sub"] = get_cycle_sum("Subscriptions")
-    st.session_state["c_Inv"] = get_cycle_sum("Investments")
     st.session_state["c_Tra"] = get_cycle_sum("Transportation")
     st.session_state["c_Lei"] = get_cycle_sum("Leisure")
     
-    # Preload Emergency Spend
+    # Preload Itemized Emergency Spend
     st.session_state["emg_count"] = max(1, len(emg_entries))
     for i in range(st.session_state["emg_count"]):
         if i < len(emg_entries):
@@ -581,6 +582,36 @@ if st.session_state.get("loaded_date_range") != (start_date, end_date):
                 st.session_state[f"c_Pet_{name}_{exp_type}"] = float(match.iloc[0]["Amount"])
             else:
                 st.session_state[f"c_Pet_{name}_{exp_type}"] = None
+                
+    # Preload Dynamic Investments (Migrates legacy static data automatically)
+    inv_names = []
+    for desc in inv_entries["Description"]:
+        name = desc if desc and desc != "Consolidated Cycle Log" else "General Investments"
+        if name not in inv_names:
+            inv_names.append(name)
+    st.session_state["inv_names"] = inv_names
+    
+    for name in inv_names:
+        db_desc = "Consolidated Cycle Log" if name == "General Investments" else name
+        match = inv_entries[inv_entries["Description"] == db_desc]
+        if not match.empty:
+            st.session_state[f"c_Inv_{name}"] = float(match.iloc[0]["Amount"])
+        else:
+            st.session_state[f"c_Inv_{name}"] = None
+
+    # Preload Dynamic Hobbies
+    hob_names = []
+    for desc in hob_entries["Description"]:
+        if desc and desc not in hob_names:
+            hob_names.append(desc)
+    st.session_state["hob_names"] = hob_names
+    
+    for name in hob_names:
+        match = hob_entries[hob_entries["Description"] == name]
+        if not match.empty:
+            st.session_state[f"c_Hob_{name}"] = float(match.iloc[0]["Amount"])
+        else:
+            st.session_state[f"c_Hob_{name}"] = None
 
 
 st.divider()
@@ -598,16 +629,64 @@ with st.expander("🏡 Core Living", expanded=True):
         st.number_input("🛒 Groceries", step=500.0, key="c_Gro")
         st.number_input("⚙️ Business Ops", step=500.0, key="c_Bus")
 
-with st.expander("💳 Debt, Subs & Lifestyle"):
+with st.expander("💳 Debt & Lifestyle"):
     dc1, dc2 = st.columns(2)
     with dc1:
         st.number_input("🚘 Car Payment", step=1000.0, key="c_Car")
         st.number_input("💳 Credit Cards", step=500.0, key="c_Cre")
-        st.number_input("📺 Subscriptions", step=100.0, key="c_Sub")
     with dc2:
-        st.number_input("📈 Investments", step=500.0, key="c_Inv")
+        st.number_input("📺 Subscriptions", step=100.0, key="c_Sub")
         st.number_input("🚗 Gas & Auto", step=500.0, key="c_Tra")
         st.number_input("🍔 Dining Out", step=500.0, key="c_Lei")
+
+with st.expander("📈 Investments & Hobbies"):
+    # Investments Section
+    col_add_i1, col_add_i2 = st.columns([3, 1])
+    with col_add_i1:
+        new_inv = st.text_input("Investment Name", key="new_inv_input", label_visibility="collapsed", placeholder="Enter Investment (e.g. Stocks, Crypto)")
+    with col_add_i2:
+        if st.button("➕ Add Investment", use_container_width=True):
+            if new_inv and new_inv not in st.session_state.get("inv_names", []):
+                if "inv_names" not in st.session_state:
+                    st.session_state["inv_names"] = []
+                st.session_state.inv_names.append(new_inv.strip())
+                st.rerun()
+
+    for inv in list(st.session_state.get("inv_names", [])):
+        col_name, col_amt, col_del = st.columns([2, 2, 1])
+        with col_name:
+            st.write(f"📈 **{inv}**")
+        with col_amt:
+            st.number_input("Amount", step=500.0, key=f"c_Inv_{inv}", label_visibility="collapsed")
+        with col_del:
+            if st.button("❌ Remove", key=f"del_inv_{inv}", use_container_width=True):
+                st.session_state.inv_names.remove(inv)
+                st.rerun()
+
+    st.divider()
+    
+    # Hobbies Section
+    col_add_h1, col_add_h2 = st.columns([3, 1])
+    with col_add_h1:
+        new_hob = st.text_input("Hobby Name", key="new_hob_input", label_visibility="collapsed", placeholder="Enter Hobby (e.g. Gaming, Cycling)")
+    with col_add_h2:
+        if st.button("➕ Add Hobby", use_container_width=True):
+            if new_hob and new_hob not in st.session_state.get("hob_names", []):
+                if "hob_names" not in st.session_state:
+                    st.session_state["hob_names"] = []
+                st.session_state.hob_names.append(new_hob.strip())
+                st.rerun()
+
+    for hob in list(st.session_state.get("hob_names", [])):
+        col_name, col_amt, col_del = st.columns([2, 2, 1])
+        with col_name:
+            st.write(f"🎨 **{hob}**")
+        with col_amt:
+            st.number_input("Amount", step=500.0, key=f"c_Hob_{hob}", label_visibility="collapsed")
+        with col_del:
+            if st.button("❌ Remove", key=f"del_hob_{hob}", use_container_width=True):
+                st.session_state.hob_names.remove(hob)
+                st.rerun()
         
 with st.expander("👶 Children"):
     col_add_c1, col_add_c2 = st.columns([3, 1])
@@ -703,8 +782,8 @@ st.write("")
 if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_container_width=True):
     form_cats = [
         "Housing", "Electricity", "Water", "Internet", "Groceries", "Business Ops", 
-        "Car Payment", "Credit Cards", "Subscriptions", "Investments", "Transportation", 
-        "Leisure", "Emergency Spend", "Extra Income", "Children", "Pets"
+        "Car Payment", "Credit Cards", "Subscriptions", "Investments", "Hobbies", 
+        "Transportation", "Leisure", "Emergency Spend", "Extra Income", "Children", "Pets"
     ]
     
     mask = ~((global_db["Username"] == st.session_state.username) & 
@@ -738,10 +817,38 @@ if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_c
     append_cat("Car Payment", "c_Car")
     append_cat("Credit Cards", "c_Cre")
     append_cat("Subscriptions", "c_Sub")
-    append_cat("Investments", "c_Inv")
     append_cat("Transportation", "c_Tra")
     append_cat("Leisure", "c_Lei")
     
+    # Save Dynamic Investments
+    for inv in st.session_state.get("inv_names", []):
+        amt = st.session_state.get(f"c_Inv_{inv}")
+        if amt is not None and float(amt) > 0:
+            db_desc = "Consolidated Cycle Log" if inv == "General Investments" else inv
+            new_rows.append({
+                "Username": st.session_state.username,
+                "Date": log_date_str,
+                "Type": "Expense",
+                "Category": "Investments",
+                "Description": db_desc,
+                "Amount": float(amt),
+                "Cycle_Mode": cycle_type
+            })
+
+    # Save Dynamic Hobbies
+    for hob in st.session_state.get("hob_names", []):
+        amt = st.session_state.get(f"c_Hob_{hob}")
+        if amt is not None and float(amt) > 0:
+            new_rows.append({
+                "Username": st.session_state.username,
+                "Date": log_date_str,
+                "Type": "Expense",
+                "Category": "Hobbies",
+                "Description": hob,
+                "Amount": float(amt),
+                "Cycle_Mode": cycle_type
+            })
+
     # Save Dynamic Children Rows
     for child in st.session_state.get("child_names", []):
         for exp_type in ["Allowance", "Tuition", "Check up", "Activities", "Toys", "Clothing", "Other Supplies"]:
@@ -833,14 +940,17 @@ for pet in st.session_state.get("pet_names", []):
     for exp_type in ["Food and Treats", "Check up", "Grooming", "Toys", "Clothing", "Other Supplies"]:
         total_pets += safe_float(st.session_state.get(f"c_Pet_{pet}_{exp_type}"))
 
+total_investments = sum([safe_float(st.session_state.get(f"c_Inv_{inv}")) for inv in st.session_state.get("inv_names", [])])
+total_hobbies = sum([safe_float(st.session_state.get(f"c_Hob_{hob}")) for hob in st.session_state.get("hob_names", [])])
+
 total_baseline_expenses = sum([
     safe_float(st.session_state.get("c_Hou")), safe_float(st.session_state.get("c_Ele")), 
     safe_float(st.session_state.get("c_Wat")), safe_float(st.session_state.get("c_Int")), 
     safe_float(st.session_state.get("c_Gro")), safe_float(st.session_state.get("c_Bus")),
     safe_float(st.session_state.get("c_Car")), safe_float(st.session_state.get("c_Cre")), 
-    safe_float(st.session_state.get("c_Sub")), safe_float(st.session_state.get("c_Inv")),
-    safe_float(st.session_state.get("c_Tra")), safe_float(st.session_state.get("c_Lei"))
-]) + total_children + total_pets
+    safe_float(st.session_state.get("c_Sub")), safe_float(st.session_state.get("c_Tra")), 
+    safe_float(st.session_state.get("c_Lei"))
+]) + total_children + total_pets + total_investments + total_hobbies
 
 total_bucket_income = bucket_base_income + total_extra_income
 actual_remaining = total_bucket_income - total_baseline_expenses - total_emergency
@@ -861,13 +971,19 @@ pie_data = []
 cats = [
     ("Housing", "c_Hou"), ("Electricity", "c_Ele"), ("Water", "c_Wat"), ("Internet", "c_Int"),
     ("Groceries", "c_Gro"), ("Business Ops", "c_Bus"), ("Car Payment", "c_Car"), ("Credit Cards", "c_Cre"),
-    ("Subscriptions", "c_Sub"), ("Investments", "c_Inv"), ("Transportation", "c_Tra"), ("Leisure", "c_Lei")
+    ("Subscriptions", "c_Sub"), ("Transportation", "c_Tra"), ("Leisure", "c_Lei")
 ]
 
 for name, key in cats:
     val = safe_float(st.session_state.get(key))
     if val > 0:
         pie_data.append({"Category": name, "Amount": val})
+
+if total_investments > 0:
+    pie_data.append({"Category": "Investments", "Amount": total_investments})
+
+if total_hobbies > 0:
+    pie_data.append({"Category": "Hobbies", "Amount": total_hobbies})
 
 if total_children > 0:
     pie_data.append({"Category": "Children", "Amount": total_children})
