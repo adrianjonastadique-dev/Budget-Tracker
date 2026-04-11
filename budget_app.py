@@ -28,7 +28,7 @@ if "budget_auth" not in st.session_state:
     st.session_state.budget_auth = False
 
 # ==========================================
-# --- SECURE LOGIN ---
+# --- SECURE LOGIN & PROFILE LOAD ---
 # ==========================================
 if not st.session_state.budget_auth:
     st.title("💼 Smart Finance Tracker")
@@ -51,12 +51,10 @@ if not st.session_state.budget_auth:
     entered_pwd = st.text_input("Password", type="password")
     
     if st.button("Secure Login"):
-        # 1. Bot Check
         if honeypot:
             st.error("🤖 Bot activity detected.")
             st.stop()
             
-        # 2. Cooldown Check (3 seconds)
         current_time = time.time()
         if "last_login_attempt" in st.session_state:
             if current_time - st.session_state.last_login_attempt < 3:
@@ -66,10 +64,8 @@ if not st.session_state.budget_auth:
 
         if entered_user and entered_pwd:
             try:
-                # Fetch users DB
                 users_db = conn.read(worksheet="Users", ttl=0)
                 
-                # Ensure the Session_ID column exists
                 if "Session_ID" not in users_db.columns:
                     users_db["Session_ID"] = ""
                     
@@ -77,22 +73,28 @@ if not st.session_state.budget_auth:
                 user_match = users_db[users_db["Username"].astype(str) == entered_user.strip()]
                 
                 if not user_match.empty and str(user_match.iloc[0]["Password"]).strip() == entered_pwd.strip():
-                    
-                    # 3. Generate New Session ID
                     new_session_id = str(uuid.uuid4())
-                    
-                    # Update DB with new Session ID
                     row_idx = users_db.index[users_db["Username"].astype(str) == entered_user.strip()].tolist()[0]
                     users_db.at[row_idx, "Session_ID"] = new_session_id
                     conn.update(worksheet="Users", data=users_db)
                     
-                    # Authorize session
                     st.session_state.budget_auth = True
                     st.session_state.username = entered_user.strip()
                     st.session_state.session_id = new_session_id
                     
+                    # --- LOAD PERMANENT INCOME SETTINGS ---
+                    for col in ["Pay_Frequency", "Income_1", "Income_2", "Side_Hustle"]:
+                        if col in user_match.columns:
+                            val = user_match.iloc[0][col]
+                            if pd.isna(val):
+                                st.session_state[col] = "Once a Month" if col == "Pay_Frequency" else 0.0
+                            else:
+                                st.session_state[col] = val
+                        else:
+                            st.session_state[col] = "Once a Month" if col == "Pay_Frequency" else 0.0
+
                     st.success("✅ Login successful!")
-                    time.sleep(0.5) # Quick pause for UX before reloading
+                    time.sleep(0.5) 
                     st.rerun()
                 else:
                     st.error("❌ Invalid credentials.")
@@ -101,7 +103,7 @@ if not st.session_state.budget_auth:
     st.stop()
 
 # ==========================================
-# --- 1. THE INCOME ENGINE (SIDEBAR) ---
+# --- 1. THE PERMANENT INCOME ENGINE ---
 # ==========================================
 if "show_success" in st.session_state and st.session_state.show_success:
     st.success("✅ Dashboard Snapshot Safely Synced to Cloud!")
@@ -112,25 +114,65 @@ with st.sidebar:
     st.divider()
     st.header("💰 Income Engine")
     
-    salary_type = st.radio("Pay Frequency:", ["Weekly", "Bi-Monthly", "Once a Month"], key="freq")
+    # Load defaults from database (via session_state)
+    saved_freq = st.session_state.get("Pay_Frequency", "Once a Month")
+    if saved_freq not in ["Weekly", "Bi-Monthly", "Once a Month"]:
+        saved_freq = "Once a Month"
+        
+    freq_idx = ["Weekly", "Bi-Monthly", "Once a Month"].index(saved_freq)
+    salary_type = st.radio("Pay Frequency:", ["Weekly", "Bi-Monthly", "Once a Month"], index=freq_idx)
+    
+    inc1 = float(st.session_state.get("Income_1", 0.0))
+    inc2 = float(st.session_state.get("Income_2", 0.0))
+    side = float(st.session_state.get("Side_Hustle", 0.0))
     
     if salary_type == "Weekly":
         with st.expander("📝 Enter Weekly Pay", expanded=True):
-            weekly_pay = st.number_input("Average Weekly Net (₱)", min_value=0.0, step=500.0, key="wp")
-            base_salary = (weekly_pay or 0) * 4 
+            weekly_pay = st.number_input("Average Weekly Net (₱)", value=inc1, min_value=0.0, step=500.0)
+            base_salary = weekly_pay * 4 
+            current_inc1, current_inc2 = weekly_pay, 0.0
     elif salary_type == "Bi-Monthly":
         with st.expander("📝 Enter Bi-Monthly Paychecks", expanded=True):
-            pay1 = st.number_input("1st Paycheck (₱)", min_value=0.0, step=1000.0, key="p1")
-            pay2 = st.number_input("2nd Paycheck (₱)", min_value=0.0, step=1000.0, key="p2")
-            base_salary = (pay1 or 0) + (pay2 or 0)
+            pay1 = st.number_input("1st Paycheck (₱)", value=inc1, min_value=0.0, step=1000.0)
+            pay2 = st.number_input("2nd Paycheck (₱)", value=inc2, min_value=0.0, step=1000.0)
+            base_salary = pay1 + pay2
+            current_inc1, current_inc2 = pay1, pay2
     else:
         with st.expander("📝 Enter Monthly Salary", expanded=True):
-            salary_input = st.number_input("Total Monthly Net (₱)", min_value=0.0, step=1000.0, key="si")
-            base_salary = salary_input or 0
+            salary_input = st.number_input("Total Monthly Net (₱)", value=inc1, min_value=0.0, step=1000.0)
+            base_salary = salary_input
+            current_inc1, current_inc2 = salary_input, 0.0
 
-    side_hustle = st.number_input("Business / Side Hustle (₱)", min_value=0.0, step=1000.0, key="sh")
-    base_income = base_salary + (side_hustle or 0)
+    side_hustle = st.number_input("Business / Side Hustle (₱)", value=side, min_value=0.0, step=1000.0)
+    base_income = base_salary + side_hustle
+    
     st.success(f"**Total Monthly Income: ₱{base_income:,.2f}**")
+    
+    # Save Income Profile Button
+    if st.button("💾 Save Income Profile", use_container_width=True):
+        try:
+            users_db = conn.read(worksheet="Users", ttl=0)
+            row_idx = users_db.index[users_db["Username"].astype(str) == st.session_state.username].tolist()[0]
+            
+            for col in ["Pay_Frequency", "Income_1", "Income_2", "Side_Hustle"]:
+                if col not in users_db.columns:
+                    users_db[col] = 0.0 if col != "Pay_Frequency" else "Once a Month"
+            
+            users_db.at[row_idx, "Pay_Frequency"] = salary_type
+            users_db.at[row_idx, "Income_1"] = current_inc1
+            users_db.at[row_idx, "Income_2"] = current_inc2
+            users_db.at[row_idx, "Side_Hustle"] = side_hustle
+            
+            conn.update(worksheet="Users", data=users_db)
+            
+            st.session_state["Pay_Frequency"] = salary_type
+            st.session_state["Income_1"] = current_inc1
+            st.session_state["Income_2"] = current_inc2
+            st.session_state["Side_Hustle"] = side_hustle
+            
+            st.toast("✅ Income Profile Saved to Cloud!")
+        except Exception as e:
+            st.error(f"Failed to save to database: {e}")
 
 # ==========================================
 # --- 2. DYNAMIC BUCKET ENGINE ---
@@ -191,7 +233,6 @@ bucket_base_income = base_income / income_divisor
 # ==========================================
 global_db = conn.read(worksheet="Sheet1", ttl=0).dropna(how="all")
 
-# Ensure required columns exist, including our new Cycle_Mode
 if "Username" not in global_db.columns:
     global_db = pd.DataFrame(columns=["Username", "Date", "Type", "Category", "Description", "Amount", "Cycle_Mode"])
 if "Cycle_Mode" not in global_db.columns:
@@ -203,21 +244,8 @@ global_db["Amount"] = pd.to_numeric(global_db["Amount"], errors="coerce").fillna
 
 user_log = global_db[global_db["Username"] == st.session_state.username].copy()
 
-# Determine the active cycle mode for the whole month
-month_start = datetime.date(selected_year, selected_month, 1)
-month_end = datetime.date(selected_year, selected_month, last_day)
-
-# Initialize it here to guarantee it is defined
-active_cycle_mode = None 
-
 if not user_log.empty:
     user_log["Date_Obj"] = pd.to_datetime(user_log["Date"], errors="coerce").dt.date
-    
-    # Scan the whole month to see if data was already saved under a specific cycle
-    month_records = user_log[(user_log["Date_Obj"] >= month_start) & (user_log["Date_Obj"] <= month_end)]
-    active_cycle_mode = month_records["Cycle_Mode"].iloc[0] if not month_records.empty else None
-
-    # Filter for the specific bucket timeline
     cycle_log = user_log[(user_log["Date_Obj"] >= start_date) & (user_log["Date_Obj"] <= end_date)]
 else:
     cycle_log = user_log
@@ -229,7 +257,6 @@ def get_cycle_sum(cat):
 # ==========================================
 # --- 4. THE STATIC CYCLE LEDGER ---
 # ==========================================
-# Fetch existing Emergency Spend itemized rows for this cycle
 emg_entries = cycle_log[cycle_log["Category"] == "Emergency Spend"]
 
 if st.session_state.get("loaded_date_range") != (start_date, end_date):
@@ -248,7 +275,6 @@ if st.session_state.get("loaded_date_range") != (start_date, end_date):
     st.session_state["c_Lei"] = get_cycle_sum("Leisure")
     st.session_state["c_Ext"] = get_cycle_sum("Extra Income")
     
-    # Pre-load itemized Emergency Entries if they exist, otherwise default to 1 blank row
     st.session_state["emg_count"] = max(1, len(emg_entries))
     for i in range(st.session_state["emg_count"]):
         if i < len(emg_entries):
@@ -287,7 +313,6 @@ st.number_input("Extra Income Amount", step=500.0, key="c_Ext")
 st.write("---")
 st.write("**🚨 Emergency Funds (Itemized)**")
 
-# Dynamic Emergency Rows Generator
 for i in range(st.session_state.emg_count):
     col_d, col_a = st.columns([2, 1])
     with col_d:
@@ -295,112 +320,98 @@ for i in range(st.session_state.emg_count):
     with col_a:
         st.number_input("Amount", step=500.0, key=f"c_Emg_amt_{i}", value=None, label_visibility="collapsed" if i > 0 else "visible")
 
-# The Add Button for Emergency Rows
 if st.button("➕ Add Emergency Expense"):
     st.session_state.emg_count += 1
     st.rerun()
 
 st.write("")
-# Protect granular data: Lock the sync button if viewing a different cycle mode
-if active_cycle_mode and active_cycle_mode != cycle_type:
-    st.info(f"🔒 **Read-Only Mode:** This month is being tracked in **{active_cycle_mode}** mode. You are viewing it in **{cycle_type}** mode. Saving is disabled to prevent overwriting your ledger.")
+
+# ==========================================
+# --- STRICT INCONSISTENCY VALIDATION & SYNC ---
+# ==========================================
+month_start = datetime.date(selected_year, selected_month, 1)
+month_end = datetime.date(selected_year, selected_month, last_day)
+
+# Fetch all records for this specific month to check how they were saved
+month_records = global_db[
+    (global_db["Username"] == st.session_state.username) & 
+    (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= month_start) & 
+    (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= month_end)
+]
+
+modes_used = month_records["Cycle_Mode"].dropna().unique()
+
+# If viewing Monthly, but the database holds Bi-Monthly or Weekly records, show the error and hide the Sync button.
+if cycle_type == "Monthly" and ("Bi-Monthly" in modes_used or "Weekly" in modes_used):
+    st.error("❌ **Data Inconsistency:** This month contains detailed Bi-Monthly or Weekly records. Modifying the consolidated Monthly total directly would destroy your granular timestamps. Please switch to the specific cycle type above to adjust your expenses.")
 else:
-   if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_container_width=True):
-    
-    # ==========================================
-    # --- STRICT INCONSISTENCY VALIDATION ---
-    # ==========================================
-    if "Cycle_Mode" not in global_db.columns:
-        global_db["Cycle_Mode"] = "Monthly"
+    if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_container_width=True):
+        form_cats = [
+            "Housing", "Electricity", "Water", "Internet", "Groceries", "Business Ops", 
+            "Car Payment", "Credit Cards", "Subscriptions", "Investments", "Transportation", 
+            "Leisure", "Emergency Spend", "Extra Income"
+        ]
         
-    month_start = datetime.date(selected_year, selected_month, 1)
-    month_end = datetime.date(selected_year, selected_month, last_day)
-    
-    # Fetch all records for this specific month
-    month_records = global_db[
-        (global_db["Username"] == st.session_state.username) & 
-        (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= month_start) & 
-        (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= month_end)
-    ]
-    
-    modes_used = month_records["Cycle_Mode"].unique()
-    
-    # THE RULE: Block Monthly saves if granular data exists
-    if cycle_type == "Monthly" and ("Bi-Monthly" in modes_used or "Weekly" in modes_used):
-        st.error("❌ **Data Inconsistency Error:** This month contains detailed Bi-Monthly or Weekly records. Modifying the consolidated Monthly total directly would destroy your timestamps. Please switch to the specific cycle to adjust your expenses.")
-        st.stop() # This immediately halts the save process
-
-    # ==========================================
-    # --- STANDARD WIPE & REPLACE SAVE ---
-    # ==========================================
-    form_cats = [
-        "Housing", "Electricity", "Water", "Internet", "Groceries", "Business Ops", 
-        "Car Payment", "Credit Cards", "Subscriptions", "Investments", "Transportation", 
-        "Leisure", "Emergency Spend", "Extra Income"
-    ]
-    
-    # Wipe the existing data ONLY for the exact date range of the active bucket
-    mask = ~((global_db["Username"] == st.session_state.username) & 
-             (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= start_date) & 
-             (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= end_date) & 
-             (global_db["Category"].isin(form_cats)))
-    cleaned_db = global_db[mask]
-    
-    new_rows = []
-    log_date_str = start_date.strftime("%Y-%m-%d")
-    
-    def append_cat(cat_name, state_key, tx_type="Expense"):
-        val = st.session_state.get(state_key)
-        if val is not None and float(val) > 0:
-            new_rows.append({
-                "Username": st.session_state.username,
-                "Date": log_date_str,
-                "Type": tx_type,
-                "Category": cat_name,
-                "Description": "Consolidated Cycle Log",
-                "Amount": float(val),
-                "Cycle_Mode": cycle_type # Tag the row with the current cycle
-            })
-
-    # Standard Categories
-    append_cat("Housing", "c_Hou")
-    append_cat("Electricity", "c_Ele")
-    append_cat("Water", "c_Wat")
-    append_cat("Internet", "c_Int")
-    append_cat("Groceries", "c_Gro")
-    append_cat("Business Ops", "c_Bus")
-    append_cat("Car Payment", "c_Car")
-    append_cat("Credit Cards", "c_Cre")
-    append_cat("Subscriptions", "c_Sub")
-    append_cat("Investments", "c_Inv")
-    append_cat("Transportation", "c_Tra")
-    append_cat("Leisure", "c_Lei")
-    append_cat("Extra Income", "c_Ext", "Extra Income")
-    
-    # Dynamic Emergency Rows Saving Logic
-    for i in range(st.session_state.get("emg_count", 1)):
-        amt = st.session_state.get(f"c_Emg_amt_{i}")
-        if amt is not None and float(amt) > 0:
-            desc = st.session_state.get(f"c_Emg_desc_{i}", "").strip()
-            new_rows.append({
-                "Username": st.session_state.username,
-                "Date": log_date_str,
-                "Type": "Expense",
-                "Category": "Emergency Spend",
-                "Description": desc if desc else "Emergency Spend",
-                "Amount": float(amt),
-                "Cycle_Mode": cycle_type
-            })
-    
-    if new_rows:
-        updated_db = pd.concat([cleaned_db, pd.DataFrame(new_rows)], ignore_index=True)
-    else:
-        updated_db = cleaned_db 
+        mask = ~((global_db["Username"] == st.session_state.username) & 
+                 (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= start_date) & 
+                 (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= end_date) & 
+                 (global_db["Category"].isin(form_cats)))
+        cleaned_db = global_db[mask]
         
-    conn.update(worksheet="Sheet1", data=updated_db)
-    st.cache_data.clear()
-    st.session_state.show_success = True
-    st.rerun()
+        new_rows = []
+        log_date_str = start_date.strftime("%Y-%m-%d")
+        
+        def append_cat(cat_name, state_key, tx_type="Expense"):
+            val = st.session_state.get(state_key)
+            if val is not None and float(val) > 0:
+                new_rows.append({
+                    "Username": st.session_state.username,
+                    "Date": log_date_str,
+                    "Type": tx_type,
+                    "Category": cat_name,
+                    "Description": "Consolidated Cycle Log",
+                    "Amount": float(val),
+                    "Cycle_Mode": cycle_type
+                })
+
+        append_cat("Housing", "c_Hou")
+        append_cat("Electricity", "c_Ele")
+        append_cat("Water", "c_Wat")
+        append_cat("Internet", "c_Int")
+        append_cat("Groceries", "c_Gro")
+        append_cat("Business Ops", "c_Bus")
+        append_cat("Car Payment", "c_Car")
+        append_cat("Credit Cards", "c_Cre")
+        append_cat("Subscriptions", "c_Sub")
+        append_cat("Investments", "c_Inv")
+        append_cat("Transportation", "c_Tra")
+        append_cat("Leisure", "c_Lei")
+        append_cat("Extra Income", "c_Ext", "Extra Income")
+        
+        for i in range(st.session_state.get("emg_count", 1)):
+            amt = st.session_state.get(f"c_Emg_amt_{i}")
+            if amt is not None and float(amt) > 0:
+                desc = st.session_state.get(f"c_Emg_desc_{i}", "").strip()
+                new_rows.append({
+                    "Username": st.session_state.username,
+                    "Date": log_date_str,
+                    "Type": "Expense",
+                    "Category": "Emergency Spend",
+                    "Description": desc if desc else "Emergency Spend",
+                    "Amount": float(amt),
+                    "Cycle_Mode": cycle_type
+                })
+        
+        if new_rows:
+            updated_db = pd.concat([cleaned_db, pd.DataFrame(new_rows)], ignore_index=True)
+        else:
+            updated_db = cleaned_db 
+            
+        conn.update(worksheet="Sheet1", data=updated_db)
+        st.cache_data.clear()
+        st.session_state.show_success = True
+        st.rerun()
+
 st.divider()
 
 # ==========================================
@@ -410,8 +421,6 @@ def safe_float(val):
     return float(val) if val else 0.0
 
 total_extra_income = safe_float(st.session_state.get("c_Ext"))
-
-# Calculate total emergency spend by summing all dynamic rows
 total_emergency = sum([safe_float(st.session_state.get(f"c_Emg_amt_{i}")) for i in range(st.session_state.get("emg_count", 1))])
 
 total_baseline_expenses = sum([
@@ -450,7 +459,6 @@ for name, key in cats:
     if val > 0:
         pie_data.append({"Category": name, "Amount": val})
 
-# Append aggregate emergency data to the pie chart
 if total_emergency > 0:
     pie_data.append({"Category": "Emergency Spend", "Amount": total_emergency})
 
@@ -470,20 +478,11 @@ st.write("---")
 st.write("### 📋 Expense Summary")
 
 if pie_data:
-    # Convert active pie_data into a clean dataframe and sort it
     summary_df = pd.DataFrame(pie_data).sort_values(by="Amount", ascending=False)
-    
-    # Calculate the total of all items in the pie_data
     total_expenditure = summary_df["Amount"].sum()
-    
-    # Create a 'Total' row and append it to the bottom
     total_row = pd.DataFrame([{"Category": "Total Expenditure", "Amount": total_expenditure}])
     summary_df = pd.concat([summary_df, total_row], ignore_index=True)
-    
-    # Apply currency formatting to everything, including the new total row
     summary_df["Amount"] = summary_df["Amount"].apply(lambda x: f"₱ {x:,.2f}")
-    
-    # Hide the index for a cleaner look
     st.table(summary_df.set_index("Category"))
 else:
     st.info("No expenses recorded for this cycle.")
