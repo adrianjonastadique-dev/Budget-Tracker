@@ -5,6 +5,7 @@ import datetime
 import calendar
 import time
 import uuid
+import random # Add this for the Math CAPTCHA
 from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(page_title="Smart Budget", layout="wide")
@@ -30,76 +31,144 @@ if "budget_auth" not in st.session_state:
 # ==========================================
 # --- SECURE LOGIN & PROFILE LOAD ---
 # ==========================================
+# ==========================================
+# --- SECURE LOGIN & REGISTRATION ---
+# ==========================================
 if not st.session_state.budget_auth:
     st.title("💼 Smart Finance Tracker")
-    st.info("Enter your Client ID to access your financial dashboard.")
     
-    # Invisible Honeypot Trap
-    st.markdown(
-        """
-        <style>
-        div[data-testid="stTextInput"]:has(input[aria-label="honeypot"]) {
-            display: none;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-    honeypot = st.text_input("honeypot", key="hp_input", label_visibility="hidden")
+    # Create the Login / Register Tabs
+    tab_login, tab_register = st.tabs(["🔑 Secure Login", "📝 Create Account"])
     
-    entered_user = st.text_input("Username / Client ID")
-    entered_pwd = st.text_input("Password", type="password")
-    
-    if st.button("Secure Login"):
-        if honeypot:
-            st.error("🤖 Bot activity detected.")
-            st.stop()
-            
-        current_time = time.time()
-        if "last_login_attempt" in st.session_state:
-            if current_time - st.session_state.last_login_attempt < 3:
-                st.warning("⏳ Please wait a few seconds before trying again.")
+    # --- TAB 1: LOGIN ---
+    with tab_login:
+        st.info("Enter your Client ID to access your financial dashboard.")
+        
+        # Invisible Honeypot Trap
+        st.markdown(
+            """
+            <style>
+            div[data-testid="stTextInput"]:has(input[aria-label="honeypot"]) {
+                display: none;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+        honeypot = st.text_input("honeypot", key="hp_input", label_visibility="hidden")
+        
+        entered_user = st.text_input("Username / Client ID", key="log_user")
+        entered_pwd = st.text_input("Password", type="password", key="log_pwd")
+        
+        if st.button("Secure Login"):
+            if honeypot:
+                st.error("🤖 Bot activity detected.")
                 st.stop()
-        st.session_state.last_login_attempt = current_time
+                
+            current_time = time.time()
+            if "last_login_attempt" in st.session_state:
+                if current_time - st.session_state.last_login_attempt < 3:
+                    st.warning("⏳ Please wait a few seconds before trying again.")
+                    st.stop()
+            st.session_state.last_login_attempt = current_time
 
-        if entered_user and entered_pwd:
-            try:
-                users_db = conn.read(worksheet="Users", ttl=600).dropna(subset=["Username"])
-                
-                if "Session_ID" not in users_db.columns:
-                    users_db["Session_ID"] = ""
+            if entered_user and entered_pwd:
+                try:
+                    users_db = conn.read(worksheet="Users", ttl=600)
                     
-                users_db = users_db.dropna(subset=["Username"])
-                user_match = users_db[users_db["Username"].astype(str) == entered_user.strip()]
-                
-                if not user_match.empty and str(user_match.iloc[0]["Password"]).strip() == entered_pwd.strip():
-                    new_session_id = str(uuid.uuid4())
-                    row_idx = users_db.index[users_db["Username"].astype(str) == entered_user.strip()].tolist()[0]
-                    users_db.at[row_idx, "Session_ID"] = new_session_id
-                    conn.update(worksheet="Users", data=users_db)
+                    if "Session_ID" not in users_db.columns:
+                        users_db["Session_ID"] = ""
+                        
+                    users_db = users_db.dropna(subset=["Username"])
+                    user_match = users_db[users_db["Username"].astype(str) == entered_user.strip()]
                     
-                    st.session_state.budget_auth = True
-                    st.session_state.username = entered_user.strip()
-                    st.session_state.session_id = new_session_id
-                    
-                    income_cols = ["Pay_Frequency", "Inc_Weekly", "Inc_BiMonth_1", "Inc_BiMonth_2", "Inc_Monthly", "Side_Hustle"]
-                    for col in income_cols:
-                        if col in user_match.columns:
-                            val = user_match.iloc[0][col]
-                            if pd.isna(val):
-                                st.session_state[col] = "Once a Month" if col == "Pay_Frequency" else 0.0
+                    if not user_match.empty and str(user_match.iloc[0]["Password"]).strip() == entered_pwd.strip():
+                        new_session_id = str(uuid.uuid4())
+                        row_idx = users_db.index[users_db["Username"].astype(str) == entered_user.strip()].tolist()[0]
+                        users_db.at[row_idx, "Session_ID"] = new_session_id
+                        conn.update(worksheet="Users", data=users_db)
+                        st.cache_data.clear()
+                        
+                        st.session_state.budget_auth = True
+                        st.session_state.username = entered_user.strip()
+                        st.session_state.session_id = new_session_id
+                        
+                        income_cols = ["Pay_Frequency", "Inc_Weekly", "Inc_BiMonth_1", "Inc_BiMonth_2", "Inc_Monthly", "Side_Hustle"]
+                        for col in income_cols:
+                            if col in user_match.columns:
+                                val = user_match.iloc[0][col]
+                                if pd.isna(val):
+                                    st.session_state[col] = "Once a Month" if col == "Pay_Frequency" else 0.0
+                                else:
+                                    st.session_state[col] = val
                             else:
-                                st.session_state[col] = val
-                        else:
-                            st.session_state[col] = "Once a Month" if col == "Pay_Frequency" else 0.0
+                                st.session_state[col] = "Once a Month" if col == "Pay_Frequency" else 0.0
 
-                    st.success("✅ Login successful!")
-                    time.sleep(0.5) 
-                    st.rerun()
+                        st.success("✅ Login successful!")
+                        time.sleep(0.5) 
+                        st.rerun()
+                    else:
+                        st.error("❌ Invalid credentials.")
+                except Exception as e:
+                    st.error(f"🚨 Database error: Ensure the 'Users' tab is set up correctly. Details: {e}")
+                    
+    # --- TAB 2: REGISTRATION ---
+    with tab_register:
+        st.info("Register a new account to start tracking your finances.")
+        
+        new_user = st.text_input("Choose a Username / Client ID", key="reg_user")
+        new_pwd = st.text_input("Choose a Password", type="password", key="reg_pwd")
+        confirm_pwd = st.text_input("Confirm Password", type="password", key="reg_confirm")
+        
+        # Math CAPTCHA Generation
+        if "captcha_a" not in st.session_state:
+            st.session_state.captcha_a = random.randint(1, 10)
+            st.session_state.captcha_b = random.randint(1, 10)
+            
+        captcha_ans = st.text_input(f"🤖 Verification: What is {st.session_state.captcha_a} + {st.session_state.captcha_b}?", key="reg_captcha")
+        
+        if st.button("Register Account", type="primary"):
+            if new_user and new_pwd and confirm_pwd and captcha_ans:
+                if new_pwd != confirm_pwd:
+                    st.error("❌ Passwords do not match.")
+                elif not captcha_ans.isdigit() or int(captcha_ans) != (st.session_state.captcha_a + st.session_state.captcha_b):
+                    st.error("❌ Incorrect verification answer. Please try again.")
                 else:
-                    st.error("❌ Invalid credentials.")
-            except Exception as e:
-                st.error(f"🚨 Database error: Ensure the 'Users' tab is set up correctly. Details: {e}")
+                    try:
+                        users_db = conn.read(worksheet="Users", ttl=600)
+                        
+                        # Check if username already exists
+                        if "Username" in users_db.columns and new_user.strip() in users_db["Username"].astype(str).values:
+                            st.error("❌ Username already exists. Please choose another.")
+                        else:
+                            # Build the new user profile row
+                            new_profile = {
+                                "Username": new_user.strip(),
+                                "Password": new_pwd.strip(),
+                                "Session_ID": "",
+                                "Join_Date": datetime.date.today().strftime("%Y-%m-%d"),
+                                "Pay_Frequency": "Once a Month",
+                                "Inc_Weekly": 0.0,
+                                "Inc_BiMonth_1": 0.0,
+                                "Inc_BiMonth_2": 0.0,
+                                "Inc_Monthly": 0.0,
+                                "Side_Hustle": 0.0
+                            }
+                            
+                            # Append to database and sync
+                            updated_users = pd.concat([users_db, pd.DataFrame([new_profile])], ignore_index=True)
+                            conn.update(worksheet="Users", data=updated_users)
+                            st.cache_data.clear() # Clear cache to recognize the new user instantly
+                            
+                            st.success("✅ Account created successfully! You can now switch to the Login tab.")
+                            
+                            # Reroll the CAPTCHA for security
+                            st.session_state.captcha_a = random.randint(1, 10)
+                            st.session_state.captcha_b = random.randint(1, 10)
+                    except Exception as e:
+                        st.error(f"🚨 Registration error: {e}")
+            else:
+                st.warning("⚠️ Please fill out all fields.")
     st.stop()
 
 # ==========================================
