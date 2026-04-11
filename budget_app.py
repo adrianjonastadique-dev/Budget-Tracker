@@ -352,42 +352,84 @@ month_records = global_db[
 ]
 
 modes_used = month_records["Cycle_Mode"].dropna().unique()
+active_mode = modes_used[0] if len(modes_used) > 0 else None
 
-# If viewing Monthly, but the database holds Bi-Monthly or Weekly records, show the error and hide the Sync button.
-if cycle_type == "Monthly" and ("Bi-Monthly" in modes_used or "Weekly" in modes_used):
-    st.error("❌ ** WARNING: To protect your detailed records, please edit this data in the Weekly or Bi-Monthly view instead of the Monthly view.")
-else:
-    if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_container_width=True):
-        form_cats = [
-            "Housing", "Electricity", "Water", "Internet", "Groceries", "Business Ops", 
-            "Car Payment", "Credit Cards", "Subscriptions", "Investments", "Transportation", 
-            "Leisure", "Emergency Spend", "Extra Income"
-        ]
-        
-        mask = ~((global_db["Username"] == st.session_state.username) & 
-                 (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= start_date) & 
-                 (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= end_date) & 
-                 (global_db["Category"].isin(form_cats)))
-        cleaned_db = global_db[mask]
-        
-        new_rows = []
-        log_date_str = start_date.strftime("%Y-%m-%d")
-        
-        def append_cat(cat_name, state_key, tx_type="Expense"):
-            val = st.session_state.get(state_key)
-            if val is not None and float(val) > 0:
-                new_rows.append({
-                    "Username": st.session_state.username,
-                    "Date": log_date_str,
-                    "Type": tx_type,
-                    "Category": cat_name,
-                    "Description": "Consolidated Cycle Log",
-                    "Amount": float(val),
-                    "Cycle_Mode": cycle_type
-                            
-# If viewing Bi-monthly, but the database holds Monthly or Weekly records, show the error and hide the Sync button.
-if cycle_type == "Bi-Monthly" and ("Monthly" in modes_used or "Weekly" in modes_used):
-    st.error("❌ ** WARNING: To protect your detailed records, please edit this data in the Weekly or Bi-Monthly view instead of the Monthly view.")
+# THE CONVERSION ENGINE & STRICT LOCK
+if active_mode and cycle_type != active_mode:
+    
+    # Feature 1: Monthly to Bi-Monthly Distribution (Monthly / 2)
+    if active_mode == "Monthly" and cycle_type == "Bi-Monthly":
+        st.info("⚠️ **Mode Mismatch:** This month was saved as a single Monthly lump sum.")
+        if st.button("🔄 Auto-Distribute (Split Monthly Data ÷ 2)", use_container_width=True):
+            mask_delete = ~((global_db["Username"] == st.session_state.username) & 
+                            (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= month_start) & 
+                            (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= month_end) & 
+                            (global_db["Cycle_Mode"] == "Monthly"))
+            cleaned_db = global_db[mask_delete]
+            
+            new_converted_rows = []
+            monthly_data = month_records[month_records["Cycle_Mode"] == "Monthly"]
+            
+            date_1st = datetime.date(selected_year, selected_month, 1).strftime("%Y-%m-%d")
+            date_16th = datetime.date(selected_year, selected_month, 16).strftime("%Y-%m-%d")
+
+            for _, row in monthly_data.iterrows():
+                half_amt = float(row["Amount"]) / 2
+                
+                # Create 1st Cutoff entry
+                row1 = row.to_dict()
+                row1["Date"], row1["Amount"], row1["Cycle_Mode"] = date_1st, half_amt, "Bi-Monthly"
+                new_converted_rows.append(row1)
+                
+                # Create 2nd Cutoff entry
+                row2 = row.to_dict()
+                row2["Date"], row2["Amount"], row2["Cycle_Mode"] = date_16th, half_amt, "Bi-Monthly"
+                new_converted_rows.append(row2)
+                
+            updated_db = pd.concat([cleaned_db, pd.DataFrame(new_converted_rows)], ignore_index=True)
+            conn.update(worksheet="Sheet1", data=updated_db)
+            st.cache_data.clear()
+            st.session_state.loaded_date_range = None # Force ledger UI to reload
+            st.rerun()
+            
+    # Feature 2: Bi-Monthly to Monthly Consolidation (Add together)
+    elif active_mode == "Bi-Monthly" and cycle_type == "Monthly":
+        st.info("⚠️ **Mode Mismatch:** This month is split into detailed Bi-Monthly records.")
+        if st.button("🔄 Auto-Consolidate (Combine into Monthly Total)", use_container_width=True):
+             mask_delete = ~((global_db["Username"] == st.session_state.username) & 
+                            (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= month_start) & 
+                            (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= month_end) & 
+                            (global_db["Cycle_Mode"] == "Bi-Monthly"))
+             cleaned_db = global_db[mask_delete]
+             
+             new_converted_rows = []
+             bimonthly_data = month_records[month_records["Cycle_Mode"] == "Bi-Monthly"]
+             
+             # Group matching categories together and add their amounts
+             grouped = bimonthly_data.groupby(["Category", "Type", "Description"])["Amount"].sum().reset_index()
+             date_1st = datetime.date(selected_year, selected_month, 1).strftime("%Y-%m-%d")
+             
+             for _, row in grouped.iterrows():
+                 new_converted_rows.append({
+                     "Username": st.session_state.username,
+                     "Date": date_1st,
+                     "Type": row["Type"],
+                     "Category": row["Category"],
+                     "Description": row["Description"],
+                     "Amount": float(row["Amount"]),
+                     "Cycle_Mode": "Monthly"
+                 })
+                 
+             updated_db = pd.concat([cleaned_db, pd.DataFrame(new_converted_rows)], ignore_index=True)
+             conn.update(worksheet="Sheet1", data=updated_db)
+             st.cache_data.clear()
+             st.session_state.loaded_date_range = None
+             st.rerun()
+             
+    else:
+        st.error(f"❌ **Cycle Mode Locked:** Data is currently saved in **{active_mode}** mode. Please switch back to **{active_mode}**.")
+
+# STANDARD SYNC BUTTON (Only shows if modes match or DB is empty)
 else:
     if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_container_width=True):
         form_cats = [
@@ -417,7 +459,7 @@ else:
                     "Amount": float(val),
                     "Cycle_Mode": cycle_type
                 })
-        
+
         append_cat("Housing", "c_Hou")
         append_cat("Electricity", "c_Ele")
         append_cat("Water", "c_Wat")
@@ -455,8 +497,6 @@ else:
         st.cache_data.clear()
         st.session_state.show_success = True
         st.rerun()
-
-st.divider()
 
 # ==========================================
 # --- 5. CALCULATIONS & EMERGENCY DRAIN ---
