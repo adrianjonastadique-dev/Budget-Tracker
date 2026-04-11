@@ -82,17 +82,16 @@ if not st.session_state.budget_auth:
                     st.session_state.username = entered_user.strip()
                     st.session_state.session_id = new_session_id
                     
-                  # --- LOAD PERMANENT INCOME SETTINGS ---
                     income_cols = ["Pay_Frequency", "Inc_Weekly", "Inc_BiMonth_1", "Inc_BiMonth_2", "Inc_Monthly", "Side_Hustle"]
                     for col in income_cols:
                         if col in user_match.columns:
                             val = user_match.iloc[0][col]
                             if pd.isna(val):
-                                st.session_state[col] = "Monthly" if col == "Pay_Frequency" else 0.0
+                                st.session_state[col] = "Once a Month" if col == "Pay_Frequency" else 0.0
                             else:
                                 st.session_state[col] = val
                         else:
-                            st.session_state[col] = "Monthly" if col == "Pay_Frequency" else 0.0
+                            st.session_state[col] = "Once a Month" if col == "Pay_Frequency" else 0.0
 
                     st.success("✅ Login successful!")
                     time.sleep(0.5) 
@@ -115,22 +114,19 @@ with st.sidebar:
     st.divider()
     st.header("💰 Income Engine")
     
-    # Load defaults from database (via session_state)
-    saved_freq = st.session_state.get("Pay_Frequency", "Monthly")
-    if saved_freq not in ["Weekly", "Bi-Monthly", "Monthly"]:
-        saved_freq = "Monthly"
+    saved_freq = st.session_state.get("Pay_Frequency", "Once a Month")
+    if saved_freq not in ["Weekly", "Bi-Monthly", "Once a Month"]:
+        saved_freq = "Once a Month"
         
-    freq_idx = ["Weekly", "Bi-Monthly", "Monthly"].index(saved_freq)
-    salary_type = st.radio("Pay Frequency:", ["Weekly", "Bi-Monthly", "Monthly"], index=freq_idx)
+    freq_idx = ["Weekly", "Bi-Monthly", "Once a Month"].index(saved_freq)
+    salary_type = st.radio("Pay Frequency:", ["Weekly", "Bi-Monthly", "Once a Month"], index=freq_idx)
     
-    # Fetch separated values
     inc_w = float(st.session_state.get("Inc_Weekly", 0.0))
     inc_b1 = float(st.session_state.get("Inc_BiMonth_1", 0.0))
     inc_b2 = float(st.session_state.get("Inc_BiMonth_2", 0.0))
     inc_m = float(st.session_state.get("Inc_Monthly", 0.0))
     side = float(st.session_state.get("Side_Hustle", 0.0))
     
-    # Initialize current values to preserve inactive fields
     current_w, current_b1, current_b2, current_m = inc_w, inc_b1, inc_b2, inc_m
 
     if salary_type == "Weekly":
@@ -152,19 +148,16 @@ with st.sidebar:
     
     st.success(f"**Total Monthly Income: ₱{base_income:,.2f}**")
     
-    # Save Income Profile Button
     if st.button("💾 Save Income Profile", use_container_width=True):
         try:
             users_db = conn.read(worksheet="Users", ttl=0)
             row_idx = users_db.index[users_db["Username"].astype(str) == st.session_state.username].tolist()[0]
             
-            # Ensure new columns exist
             income_cols = ["Pay_Frequency", "Inc_Weekly", "Inc_BiMonth_1", "Inc_BiMonth_2", "Inc_Monthly", "Side_Hustle"]
             for col in income_cols:
                 if col not in users_db.columns:
-                    users_db[col] = 0.0 if col != "Pay_Frequency" else "Monthly"
+                    users_db[col] = 0.0 if col != "Pay_Frequency" else "Once a Month"
             
-            # Update specific columns
             users_db.at[row_idx, "Pay_Frequency"] = salary_type
             users_db.at[row_idx, "Inc_Weekly"] = current_w
             users_db.at[row_idx, "Inc_BiMonth_1"] = current_b1
@@ -174,7 +167,6 @@ with st.sidebar:
             
             conn.update(worksheet="Users", data=users_db)
             
-            # Update session state
             st.session_state["Pay_Frequency"] = salary_type
             st.session_state["Inc_Weekly"] = current_w
             st.session_state["Inc_BiMonth_1"] = current_b1
@@ -241,7 +233,7 @@ for b in buckets:
 bucket_base_income = base_income / income_divisor
 
 # ==========================================
-# --- 3. FETCH & SCRUB CLOUD DATA ---
+# --- 3. SEAMLESS BACKGROUND AUTO-CONVERTER ---
 # ==========================================
 global_db = conn.read(worksheet="Sheet1", ttl=0).dropna(how="all")
 
@@ -250,6 +242,89 @@ if "Username" not in global_db.columns:
 if "Cycle_Mode" not in global_db.columns:
     global_db["Cycle_Mode"] = "Monthly"
 
+global_db["Date"] = pd.to_datetime(global_db["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+global_db["Amount"] = global_db["Amount"].astype(str).str.replace(r"[^\d.]", "", regex=True)
+global_db["Amount"] = pd.to_numeric(global_db["Amount"], errors="coerce").fillna(0.0)
+
+month_start = datetime.date(selected_year, selected_month, 1)
+month_end = datetime.date(selected_year, selected_month, last_day)
+
+month_records = global_db[
+    (global_db["Username"] == st.session_state.username) & 
+    (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= month_start) & 
+    (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= month_end)
+]
+
+modes_used = month_records["Cycle_Mode"].dropna().unique()
+active_mode = modes_used[0] if len(modes_used) > 0 else None
+
+# The Engine: Detects a mismatch and quietly modifies the DB before the UI loads
+if active_mode and cycle_type != active_mode:
+    if active_mode == "Monthly" and cycle_type == "Bi-Monthly":
+        st.toast("🔄 Auto-distributing Monthly data to Bi-Monthly...")
+        mask_delete = ~((global_db["Username"] == st.session_state.username) & 
+                        (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= month_start) & 
+                        (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= month_end) & 
+                        (global_db["Cycle_Mode"] == "Monthly"))
+        cleaned_db = global_db[mask_delete]
+        
+        new_converted_rows = []
+        monthly_data = month_records[month_records["Cycle_Mode"] == "Monthly"]
+        
+        date_1st = datetime.date(selected_year, selected_month, 1).strftime("%Y-%m-%d")
+        date_16th = datetime.date(selected_year, selected_month, 16).strftime("%Y-%m-%d")
+
+        for _, row in monthly_data.iterrows():
+            half_amt = float(row["Amount"]) / 2
+            row1 = row.to_dict(); row1["Date"] = date_1st; row1["Amount"] = half_amt; row1["Cycle_Mode"] = "Bi-Monthly"
+            row2 = row.to_dict(); row2["Date"] = date_16th; row2["Amount"] = half_amt; row2["Cycle_Mode"] = "Bi-Monthly"
+            new_converted_rows.extend([row1, row2])
+            
+        updated_db = pd.concat([cleaned_db, pd.DataFrame(new_converted_rows)], ignore_index=True)
+        conn.update(worksheet="Sheet1", data=updated_db)
+        st.cache_data.clear()
+        st.rerun() # Instantly restarts script to load the fresh Bi-Monthly math
+        
+    elif active_mode == "Bi-Monthly" and cycle_type == "Monthly":
+        st.toast("🔄 Auto-consolidating Bi-Monthly data to Monthly...")
+        mask_delete = ~((global_db["Username"] == st.session_state.username) & 
+                        (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= month_start) & 
+                        (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= month_end) & 
+                        (global_db["Cycle_Mode"] == "Bi-Monthly"))
+        cleaned_db = global_db[mask_delete]
+        
+        new_converted_rows = []
+        bimonthly_data = month_records[month_records["Cycle_Mode"] == "Bi-Monthly"]
+        
+        grouped = bimonthly_data.groupby(["Category", "Type", "Description"])["Amount"].sum().reset_index()
+        date_1st = datetime.date(selected_year, selected_month, 1).strftime("%Y-%m-%d")
+        
+        for _, row in grouped.iterrows():
+             new_converted_rows.append({
+                 "Username": st.session_state.username,
+                 "Date": date_1st,
+                 "Type": row["Type"],
+                 "Category": row["Category"],
+                 "Description": row["Description"],
+                 "Amount": float(row["Amount"]),
+                 "Cycle_Mode": "Monthly"
+             })
+             
+        updated_db = pd.concat([cleaned_db, pd.DataFrame(new_converted_rows)], ignore_index=True)
+        conn.update(worksheet="Sheet1", data=updated_db)
+        st.cache_data.clear()
+        st.rerun() # Instantly restarts script to load the combined Monthly total
+        
+    elif cycle_type == "Weekly" or active_mode == "Weekly":
+        st.error("❌ Seamless conversion is currently only supported between Monthly and Bi-Monthly views. Please clear data manually to switch to Weekly.")
+        st.stop()
+
+
+# ==========================================
+# --- 4. THE STATIC CYCLE LEDGER ---
+# ==========================================
+# Reload user_log securely after potential auto-conversion
+global_db = conn.read(worksheet="Sheet1", ttl=0).dropna(how="all")
 global_db["Date"] = pd.to_datetime(global_db["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
 global_db["Amount"] = global_db["Amount"].astype(str).str.replace(r"[^\d.]", "", regex=True)
 global_db["Amount"] = pd.to_numeric(global_db["Amount"], errors="coerce").fillna(0.0)
@@ -266,9 +341,6 @@ def get_cycle_sum(cat):
     val = cycle_log[cycle_log["Category"] == cat]["Amount"].sum()
     return float(val) if val > 0 else None
 
-# ==========================================
-# --- 4. THE STATIC CYCLE LEDGER ---
-# ==========================================
 emg_entries = cycle_log[cycle_log["Category"] == "Emergency Spend"]
 
 if st.session_state.get("loaded_date_range") != (start_date, end_date):
@@ -338,165 +410,74 @@ if st.button("➕ Add Emergency Expense"):
 
 st.write("")
 
-# ==========================================
-# --- STRICT INCONSISTENCY VALIDATION & SYNC ---
-# ==========================================
-month_start = datetime.date(selected_year, selected_month, 1)
-month_end = datetime.date(selected_year, selected_month, last_day)
-
-# Fetch all records for this specific month to check how they were saved
-month_records = global_db[
-    (global_db["Username"] == st.session_state.username) & 
-    (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= month_start) & 
-    (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= month_end)
-]
-
-modes_used = month_records["Cycle_Mode"].dropna().unique()
-active_mode = modes_used[0] if len(modes_used) > 0 else None
-
-# THE CONVERSION ENGINE & STRICT LOCK
-if active_mode and cycle_type != active_mode:
+if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_container_width=True):
+    form_cats = [
+        "Housing", "Electricity", "Water", "Internet", "Groceries", "Business Ops", 
+        "Car Payment", "Credit Cards", "Subscriptions", "Investments", "Transportation", 
+        "Leisure", "Emergency Spend", "Extra Income"
+    ]
     
-    # Feature 1: Monthly to Bi-Monthly Distribution (Monthly / 2)
-    if active_mode == "Monthly" and cycle_type == "Bi-Monthly":
-        st.info("⚠️ **Mode Mismatch:** This month was saved as a single Monthly lump sum.")
-        if st.button("🔄 Auto-Distribute (Split Monthly Data ÷ 2)", use_container_width=True):
-            mask_delete = ~((global_db["Username"] == st.session_state.username) & 
-                            (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= month_start) & 
-                            (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= month_end) & 
-                            (global_db["Cycle_Mode"] == "Monthly"))
-            cleaned_db = global_db[mask_delete]
-            
-            new_converted_rows = []
-            monthly_data = month_records[month_records["Cycle_Mode"] == "Monthly"]
-            
-            date_1st = datetime.date(selected_year, selected_month, 1).strftime("%Y-%m-%d")
-            date_16th = datetime.date(selected_year, selected_month, 16).strftime("%Y-%m-%d")
+    mask = ~((global_db["Username"] == st.session_state.username) & 
+             (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= start_date) & 
+             (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= end_date) & 
+             (global_db["Category"].isin(form_cats)))
+    cleaned_db = global_db[mask]
+    
+    new_rows = []
+    log_date_str = start_date.strftime("%Y-%m-%d")
+    
+    def append_cat(cat_name, state_key, tx_type="Expense"):
+        val = st.session_state.get(state_key)
+        if val is not None and float(val) > 0:
+            new_rows.append({
+                "Username": st.session_state.username,
+                "Date": log_date_str,
+                "Type": tx_type,
+                "Category": cat_name,
+                "Description": "Consolidated Cycle Log",
+                "Amount": float(val),
+                "Cycle_Mode": cycle_type
+            })
 
-            for _, row in monthly_data.iterrows():
-                half_amt = float(row["Amount"]) / 2
-                
-                # Create 1st Cutoff entry
-                row1 = row.to_dict()
-                row1["Date"], row1["Amount"], row1["Cycle_Mode"] = date_1st, half_amt, "Bi-Monthly"
-                new_converted_rows.append(row1)
-                
-                # Create 2nd Cutoff entry
-                row2 = row.to_dict()
-                row2["Date"], row2["Amount"], row2["Cycle_Mode"] = date_16th, half_amt, "Bi-Monthly"
-                new_converted_rows.append(row2)
-                
-            updated_db = pd.concat([cleaned_db, pd.DataFrame(new_converted_rows)], ignore_index=True)
-            conn.update(worksheet="Sheet1", data=updated_db)
-            st.cache_data.clear()
-            st.session_state.loaded_date_range = None # Force ledger UI to reload
-            st.rerun()
-            
-    # Feature 2: Bi-Monthly to Monthly Consolidation (Add together)
-    elif active_mode == "Bi-Monthly" and cycle_type == "Monthly":
-        st.info("⚠️ **Mode Mismatch:** This month is split into detailed Bi-Monthly records.")
-        if st.button("🔄 Auto-Consolidate (Combine into Monthly Total)", use_container_width=True):
-             mask_delete = ~((global_db["Username"] == st.session_state.username) & 
-                            (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= month_start) & 
-                            (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= month_end) & 
-                            (global_db["Cycle_Mode"] == "Bi-Monthly"))
-             cleaned_db = global_db[mask_delete]
-             
-             new_converted_rows = []
-             bimonthly_data = month_records[month_records["Cycle_Mode"] == "Bi-Monthly"]
-             
-             # Group matching categories together and add their amounts
-             grouped = bimonthly_data.groupby(["Category", "Type", "Description"])["Amount"].sum().reset_index()
-             date_1st = datetime.date(selected_year, selected_month, 1).strftime("%Y-%m-%d")
-             
-             for _, row in grouped.iterrows():
-                 new_converted_rows.append({
-                     "Username": st.session_state.username,
-                     "Date": date_1st,
-                     "Type": row["Type"],
-                     "Category": row["Category"],
-                     "Description": row["Description"],
-                     "Amount": float(row["Amount"]),
-                     "Cycle_Mode": "Monthly"
-                 })
-                 
-             updated_db = pd.concat([cleaned_db, pd.DataFrame(new_converted_rows)], ignore_index=True)
-             conn.update(worksheet="Sheet1", data=updated_db)
-             st.cache_data.clear()
-             st.session_state.loaded_date_range = None
-             st.rerun()
-             
+    append_cat("Housing", "c_Hou")
+    append_cat("Electricity", "c_Ele")
+    append_cat("Water", "c_Wat")
+    append_cat("Internet", "c_Int")
+    append_cat("Groceries", "c_Gro")
+    append_cat("Business Ops", "c_Bus")
+    append_cat("Car Payment", "c_Car")
+    append_cat("Credit Cards", "c_Cre")
+    append_cat("Subscriptions", "c_Sub")
+    append_cat("Investments", "c_Inv")
+    append_cat("Transportation", "c_Tra")
+    append_cat("Leisure", "c_Lei")
+    append_cat("Extra Income", "c_Ext", "Extra Income")
+    
+    for i in range(st.session_state.get("emg_count", 1)):
+        amt = st.session_state.get(f"c_Emg_amt_{i}")
+        if amt is not None and float(amt) > 0:
+            desc = st.session_state.get(f"c_Emg_desc_{i}", "").strip()
+            new_rows.append({
+                "Username": st.session_state.username,
+                "Date": log_date_str,
+                "Type": "Expense",
+                "Category": "Emergency Spend",
+                "Description": desc if desc else "Emergency Spend",
+                "Amount": float(amt),
+                "Cycle_Mode": cycle_type
+            })
+    
+    if new_rows:
+        updated_db = pd.concat([cleaned_db, pd.DataFrame(new_rows)], ignore_index=True)
     else:
-        st.error(f"❌ **Cycle Mode Locked:** Data is currently saved in **{active_mode}** mode. Please switch back to **{active_mode}**.")
+        updated_db = cleaned_db 
+        
+    conn.update(worksheet="Sheet1", data=updated_db)
+    st.cache_data.clear()
+    st.session_state.show_success = True
+    st.rerun()
 
-# STANDARD SYNC BUTTON (Only shows if modes match or DB is empty)
-else:
-    if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_container_width=True):
-        form_cats = [
-            "Housing", "Electricity", "Water", "Internet", "Groceries", "Business Ops", 
-            "Car Payment", "Credit Cards", "Subscriptions", "Investments", "Transportation", 
-            "Leisure", "Emergency Spend", "Extra Income"
-        ]
-        
-        mask = ~((global_db["Username"] == st.session_state.username) & 
-                 (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= start_date) & 
-                 (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= end_date) & 
-                 (global_db["Category"].isin(form_cats)))
-        cleaned_db = global_db[mask]
-        
-        new_rows = []
-        log_date_str = start_date.strftime("%Y-%m-%d")
-        
-        def append_cat(cat_name, state_key, tx_type="Expense"):
-            val = st.session_state.get(state_key)
-            if val is not None and float(val) > 0:
-                new_rows.append({
-                    "Username": st.session_state.username,
-                    "Date": log_date_str,
-                    "Type": tx_type,
-                    "Category": cat_name,
-                    "Description": "Consolidated Cycle Log",
-                    "Amount": float(val),
-                    "Cycle_Mode": cycle_type
-                })
-
-        append_cat("Housing", "c_Hou")
-        append_cat("Electricity", "c_Ele")
-        append_cat("Water", "c_Wat")
-        append_cat("Internet", "c_Int")
-        append_cat("Groceries", "c_Gro")
-        append_cat("Business Ops", "c_Bus")
-        append_cat("Car Payment", "c_Car")
-        append_cat("Credit Cards", "c_Cre")
-        append_cat("Subscriptions", "c_Sub")
-        append_cat("Investments", "c_Inv")
-        append_cat("Transportation", "c_Tra")
-        append_cat("Leisure", "c_Lei")
-        append_cat("Extra Income", "c_Ext", "Extra Income")
-        
-        for i in range(st.session_state.get("emg_count", 1)):
-            amt = st.session_state.get(f"c_Emg_amt_{i}")
-            if amt is not None and float(amt) > 0:
-                desc = st.session_state.get(f"c_Emg_desc_{i}", "").strip()
-                new_rows.append({
-                    "Username": st.session_state.username,
-                    "Date": log_date_str,
-                    "Type": "Expense",
-                    "Category": "Emergency Spend",
-                    "Description": desc if desc else "Emergency Spend",
-                    "Amount": float(amt),
-                    "Cycle_Mode": cycle_type
-                })
-        
-        if new_rows:
-            updated_db = pd.concat([cleaned_db, pd.DataFrame(new_rows)], ignore_index=True)
-        else:
-            updated_db = cleaned_db 
-            
-        conn.update(worksheet="Sheet1", data=updated_db)
-        st.cache_data.clear()
-        st.session_state.show_success = True
-        st.rerun()
+st.divider()
 
 # ==========================================
 # --- 5. CALCULATIONS & EMERGENCY DRAIN ---
