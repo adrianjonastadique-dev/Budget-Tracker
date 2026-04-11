@@ -82,8 +82,9 @@ if not st.session_state.budget_auth:
                     st.session_state.username = entered_user.strip()
                     st.session_state.session_id = new_session_id
                     
-                    # --- LOAD PERMANENT INCOME SETTINGS ---
-                    for col in ["Pay_Frequency", "Income_1", "Income_2", "Side_Hustle"]:
+                  # --- LOAD PERMANENT INCOME SETTINGS ---
+                    income_cols = ["Pay_Frequency", "Inc_Weekly", "Inc_BiMonth_1", "Inc_BiMonth_2", "Inc_Monthly", "Side_Hustle"]
+                    for col in income_cols:
                         if col in user_match.columns:
                             val = user_match.iloc[0][col]
                             if pd.isna(val):
@@ -105,6 +106,9 @@ if not st.session_state.budget_auth:
 # ==========================================
 # --- 1. THE PERMANENT INCOME ENGINE ---
 # ==========================================
+# ==========================================
+# --- 1. THE PERMANENT INCOME ENGINE ---
+# ==========================================
 if "show_success" in st.session_state and st.session_state.show_success:
     st.success("✅ Dashboard Snapshot Safely Synced to Cloud!")
     st.session_state.show_success = False
@@ -122,26 +126,29 @@ with st.sidebar:
     freq_idx = ["Weekly", "Bi-Monthly", "Once a Month"].index(saved_freq)
     salary_type = st.radio("Pay Frequency:", ["Weekly", "Bi-Monthly", "Once a Month"], index=freq_idx)
     
-    inc1 = float(st.session_state.get("Income_1", 0.0))
-    inc2 = float(st.session_state.get("Income_2", 0.0))
+    # Fetch separated values
+    inc_w = float(st.session_state.get("Inc_Weekly", 0.0))
+    inc_b1 = float(st.session_state.get("Inc_BiMonth_1", 0.0))
+    inc_b2 = float(st.session_state.get("Inc_BiMonth_2", 0.0))
+    inc_m = float(st.session_state.get("Inc_Monthly", 0.0))
     side = float(st.session_state.get("Side_Hustle", 0.0))
     
+    # Initialize current values to preserve inactive fields
+    current_w, current_b1, current_b2, current_m = inc_w, inc_b1, inc_b2, inc_m
+
     if salary_type == "Weekly":
         with st.expander("📝 Enter Weekly Pay", expanded=True):
-            weekly_pay = st.number_input("Average Weekly Net (₱)", value=inc1, min_value=0.0, step=500.0)
-            base_salary = weekly_pay * 4 
-            current_inc1, current_inc2 = weekly_pay, 0.0
+            current_w = st.number_input("Average Weekly Net (₱)", value=inc_w, min_value=0.0, step=500.0)
+            base_salary = current_w * 4 
     elif salary_type == "Bi-Monthly":
         with st.expander("📝 Enter Bi-Monthly Paychecks", expanded=True):
-            pay1 = st.number_input("1st Paycheck (₱)", value=inc1, min_value=0.0, step=1000.0)
-            pay2 = st.number_input("2nd Paycheck (₱)", value=inc2, min_value=0.0, step=1000.0)
-            base_salary = pay1 + pay2
-            current_inc1, current_inc2 = pay1, pay2
+            current_b1 = st.number_input("1st Paycheck (₱)", value=inc_b1, min_value=0.0, step=1000.0)
+            current_b2 = st.number_input("2nd Paycheck (₱)", value=inc_b2, min_value=0.0, step=1000.0)
+            base_salary = current_b1 + current_b2
     else:
         with st.expander("📝 Enter Monthly Salary", expanded=True):
-            salary_input = st.number_input("Total Monthly Net (₱)", value=inc1, min_value=0.0, step=1000.0)
-            base_salary = salary_input
-            current_inc1, current_inc2 = salary_input, 0.0
+            current_m = st.number_input("Total Monthly Net (₱)", value=inc_m, min_value=0.0, step=1000.0)
+            base_salary = current_m
 
     side_hustle = st.number_input("Business / Side Hustle (₱)", value=side, min_value=0.0, step=1000.0)
     base_income = base_salary + side_hustle
@@ -154,20 +161,28 @@ with st.sidebar:
             users_db = conn.read(worksheet="Users", ttl=0)
             row_idx = users_db.index[users_db["Username"].astype(str) == st.session_state.username].tolist()[0]
             
-            for col in ["Pay_Frequency", "Income_1", "Income_2", "Side_Hustle"]:
+            # Ensure new columns exist
+            income_cols = ["Pay_Frequency", "Inc_Weekly", "Inc_BiMonth_1", "Inc_BiMonth_2", "Inc_Monthly", "Side_Hustle"]
+            for col in income_cols:
                 if col not in users_db.columns:
                     users_db[col] = 0.0 if col != "Pay_Frequency" else "Once a Month"
             
+            # Update specific columns
             users_db.at[row_idx, "Pay_Frequency"] = salary_type
-            users_db.at[row_idx, "Income_1"] = current_inc1
-            users_db.at[row_idx, "Income_2"] = current_inc2
+            users_db.at[row_idx, "Inc_Weekly"] = current_w
+            users_db.at[row_idx, "Inc_BiMonth_1"] = current_b1
+            users_db.at[row_idx, "Inc_BiMonth_2"] = current_b2
+            users_db.at[row_idx, "Inc_Monthly"] = current_m
             users_db.at[row_idx, "Side_Hustle"] = side_hustle
             
             conn.update(worksheet="Users", data=users_db)
             
+            # Update session state
             st.session_state["Pay_Frequency"] = salary_type
-            st.session_state["Income_1"] = current_inc1
-            st.session_state["Income_2"] = current_inc2
+            st.session_state["Inc_Weekly"] = current_w
+            st.session_state["Inc_BiMonth_1"] = current_b1
+            st.session_state["Inc_BiMonth_2"] = current_b2
+            st.session_state["Inc_Monthly"] = current_m
             st.session_state["Side_Hustle"] = side_hustle
             
             st.toast("✅ Income Profile Saved to Cloud!")
