@@ -305,75 +305,102 @@ st.write("")
 if active_cycle_mode and active_cycle_mode != cycle_type:
     st.info(f"🔒 **Read-Only Mode:** This month is being tracked in **{active_cycle_mode}** mode. You are viewing it in **{cycle_type}** mode. Saving is disabled to prevent overwriting your ledger.")
 else:
-    if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_container_width=True):
-        form_cats = [
-            "Housing", "Electricity", "Water", "Internet", "Groceries", "Business Ops", 
-            "Car Payment", "Credit Cards", "Subscriptions", "Investments", "Transportation", 
-            "Leisure", "Emergency Spend", "Extra Income"
-        ]
+   if st.button(f"💾 Sync {selected_bucket_name} to Cloud", type="primary", use_container_width=True):
+    
+    # ==========================================
+    # --- STRICT INCONSISTENCY VALIDATION ---
+    # ==========================================
+    if "Cycle_Mode" not in global_db.columns:
+        global_db["Cycle_Mode"] = "Monthly"
         
-        mask = ~((global_db["Username"] == st.session_state.username) & 
-                 (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= start_date) & 
-                 (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= end_date) & 
-                 (global_db["Category"].isin(form_cats)))
-        cleaned_db = global_db[mask]
-        
-        new_rows = []
-        log_date_str = start_date.strftime("%Y-%m-%d")
-        
-        def append_cat(cat_name, state_key, tx_type="Expense"):
-            val = st.session_state.get(state_key)
-            if val is not None and float(val) > 0:
-                new_rows.append({
-                    "Username": st.session_state.username,
-                    "Date": log_date_str,
-                    "Type": tx_type,
-                    "Category": cat_name,
-                    "Description": "Consolidated Cycle Log",
-                    "Amount": float(val),
-                    "Cycle_Mode": cycle_type # Tag the row with the active cycle
-                })
+    month_start = datetime.date(selected_year, selected_month, 1)
+    month_end = datetime.date(selected_year, selected_month, last_day)
+    
+    # Fetch all records for this specific month
+    month_records = global_db[
+        (global_db["Username"] == st.session_state.username) & 
+        (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= month_start) & 
+        (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= month_end)
+    ]
+    
+    modes_used = month_records["Cycle_Mode"].unique()
+    
+    # THE RULE: Block Monthly saves if granular data exists
+    if cycle_type == "Monthly" and ("Bi-Monthly" in modes_used or "Weekly" in modes_used):
+        st.error("❌ **Data Inconsistency Error:** This month contains detailed Bi-Monthly or Weekly records. Modifying the consolidated Monthly total directly would destroy your timestamps. Please switch to the specific cycle to adjust your expenses.")
+        st.stop() # This immediately halts the save process
 
-        # Standard Categories
-        append_cat("Housing", "c_Hou")
-        append_cat("Electricity", "c_Ele")
-        append_cat("Water", "c_Wat")
-        append_cat("Internet", "c_Int")
-        append_cat("Groceries", "c_Gro")
-        append_cat("Business Ops", "c_Bus")
-        append_cat("Car Payment", "c_Car")
-        append_cat("Credit Cards", "c_Cre")
-        append_cat("Subscriptions", "c_Sub")
-        append_cat("Investments", "c_Inv")
-        append_cat("Transportation", "c_Tra")
-        append_cat("Leisure", "c_Lei")
-        append_cat("Extra Income", "c_Ext", "Extra Income")
-        
-        # Dynamic Emergency Rows Saving Logic
-        for i in range(st.session_state.get("emg_count", 1)):
-            amt = st.session_state.get(f"c_Emg_amt_{i}")
-            if amt is not None and float(amt) > 0:
-                desc = st.session_state.get(f"c_Emg_desc_{i}", "").strip()
-                new_rows.append({
-                    "Username": st.session_state.username,
-                    "Date": log_date_str,
-                    "Type": "Expense",
-                    "Category": "Emergency Spend",
-                    "Description": desc if desc else "Emergency Spend",
-                    "Amount": float(amt),
-                    "Cycle_Mode": cycle_type # Tag the emergency row too
-                })
-        
-        if new_rows:
-            updated_db = pd.concat([cleaned_db, pd.DataFrame(new_rows)], ignore_index=True)
-        else:
-            updated_db = cleaned_db 
-            
-        conn.update(worksheet="Sheet1", data=updated_db)
-        st.cache_data.clear()
-        st.session_state.show_success = True
-        st.rerun()
+    # ==========================================
+    # --- STANDARD WIPE & REPLACE SAVE ---
+    # ==========================================
+    form_cats = [
+        "Housing", "Electricity", "Water", "Internet", "Groceries", "Business Ops", 
+        "Car Payment", "Credit Cards", "Subscriptions", "Investments", "Transportation", 
+        "Leisure", "Emergency Spend", "Extra Income"
+    ]
+    
+    # Wipe the existing data ONLY for the exact date range of the active bucket
+    mask = ~((global_db["Username"] == st.session_state.username) & 
+             (pd.to_datetime(global_db["Date"], errors="coerce").dt.date >= start_date) & 
+             (pd.to_datetime(global_db["Date"], errors="coerce").dt.date <= end_date) & 
+             (global_db["Category"].isin(form_cats)))
+    cleaned_db = global_db[mask]
+    
+    new_rows = []
+    log_date_str = start_date.strftime("%Y-%m-%d")
+    
+    def append_cat(cat_name, state_key, tx_type="Expense"):
+        val = st.session_state.get(state_key)
+        if val is not None and float(val) > 0:
+            new_rows.append({
+                "Username": st.session_state.username,
+                "Date": log_date_str,
+                "Type": tx_type,
+                "Category": cat_name,
+                "Description": "Consolidated Cycle Log",
+                "Amount": float(val),
+                "Cycle_Mode": cycle_type # Tag the row with the current cycle
+            })
 
+    # Standard Categories
+    append_cat("Housing", "c_Hou")
+    append_cat("Electricity", "c_Ele")
+    append_cat("Water", "c_Wat")
+    append_cat("Internet", "c_Int")
+    append_cat("Groceries", "c_Gro")
+    append_cat("Business Ops", "c_Bus")
+    append_cat("Car Payment", "c_Car")
+    append_cat("Credit Cards", "c_Cre")
+    append_cat("Subscriptions", "c_Sub")
+    append_cat("Investments", "c_Inv")
+    append_cat("Transportation", "c_Tra")
+    append_cat("Leisure", "c_Lei")
+    append_cat("Extra Income", "c_Ext", "Extra Income")
+    
+    # Dynamic Emergency Rows Saving Logic
+    for i in range(st.session_state.get("emg_count", 1)):
+        amt = st.session_state.get(f"c_Emg_amt_{i}")
+        if amt is not None and float(amt) > 0:
+            desc = st.session_state.get(f"c_Emg_desc_{i}", "").strip()
+            new_rows.append({
+                "Username": st.session_state.username,
+                "Date": log_date_str,
+                "Type": "Expense",
+                "Category": "Emergency Spend",
+                "Description": desc if desc else "Emergency Spend",
+                "Amount": float(amt),
+                "Cycle_Mode": cycle_type
+            })
+    
+    if new_rows:
+        updated_db = pd.concat([cleaned_db, pd.DataFrame(new_rows)], ignore_index=True)
+    else:
+        updated_db = cleaned_db 
+        
+    conn.update(worksheet="Sheet1", data=updated_db)
+    st.cache_data.clear()
+    st.session_state.show_success = True
+    st.rerun()
 st.divider()
 
 # ==========================================
