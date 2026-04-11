@@ -64,7 +64,7 @@ if not st.session_state.budget_auth:
 
         if entered_user and entered_pwd:
             try:
-                users_db = conn.read(worksheet="Users", ttl=0)
+                users_db = conn.read(worksheet="Users", ttl=600).dropna(subset=["Username"])
                 
                 if "Session_ID" not in users_db.columns:
                     users_db["Session_ID"] = ""
@@ -150,7 +150,7 @@ with st.sidebar:
     
     if st.button("💾 Save Income Profile", use_container_width=True):
         try:
-            users_db = conn.read(worksheet="Users", ttl=0)
+            users_db = cglobal_db = conn.read(worksheet="Sheet1", ttl=600).dropna(how="all"))
             row_idx = users_db.index[users_db["Username"].astype(str) == st.session_state.username].tolist()[0]
             
             income_cols = ["Pay_Frequency", "Inc_Weekly", "Inc_BiMonth_1", "Inc_BiMonth_2", "Inc_Monthly", "Side_Hustle"]
