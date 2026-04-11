@@ -87,7 +87,6 @@ if not st.session_state.budget_auth:
                         st.session_state.username = entered_user.strip()
                         st.session_state.session_id = new_session_id
                         
-                        # Load 2-Income Household columns
                         income_cols = [
                             "Pay_Frequency", "Inc_Weekly", "Inc_BiMonth_1", "Inc_BiMonth_2", "Inc_Monthly",
                             "S_Pay_Frequency", "S_Inc_Weekly", "S_Inc_BiMonth_1", "S_Inc_BiMonth_2", "S_Inc_Monthly",
@@ -177,6 +176,18 @@ if "show_success" in st.session_state and st.session_state.show_success:
     st.success("✅ Dashboard Snapshot Safely Synced to Cloud!")
     st.session_state.show_success = False
 
+# Initialize UI keys if they don't exist
+if "p_inc_w" not in st.session_state: st.session_state.p_inc_w = float(st.session_state.get("Inc_Weekly", 0.0))
+if "p_inc_b1" not in st.session_state: st.session_state.p_inc_b1 = float(st.session_state.get("Inc_BiMonth_1", 0.0))
+if "p_inc_b2" not in st.session_state: st.session_state.p_inc_b2 = float(st.session_state.get("Inc_BiMonth_2", 0.0))
+if "p_inc_m" not in st.session_state: st.session_state.p_inc_m = float(st.session_state.get("Inc_Monthly", 0.0))
+
+if "s_inc_w" not in st.session_state: st.session_state.s_inc_w = float(st.session_state.get("S_Inc_Weekly", 0.0))
+if "s_inc_b1" not in st.session_state: st.session_state.s_inc_b1 = float(st.session_state.get("S_Inc_BiMonth_1", 0.0))
+if "s_inc_b2" not in st.session_state: st.session_state.s_inc_b2 = float(st.session_state.get("S_Inc_BiMonth_2", 0.0))
+if "s_inc_m" not in st.session_state: st.session_state.s_inc_m = float(st.session_state.get("S_Inc_Monthly", 0.0))
+
+
 with st.sidebar:
     st.header(f"👤 {st.session_state.username}")
     st.divider()
@@ -193,25 +204,43 @@ with st.sidebar:
         freq_idx = ["Weekly", "Bi-Monthly", "Monthly"].index(saved_freq)
         p_salary_type = st.radio("Pay Frequency:", ["Weekly", "Bi-Monthly", "Monthly"], index=freq_idx, key="p_freq")
         
-        inc_w = float(st.session_state.get("Inc_Weekly", 0.0))
-        inc_b1 = float(st.session_state.get("Inc_BiMonth_1", 0.0))
-        inc_b2 = float(st.session_state.get("Inc_BiMonth_2", 0.0))
-        inc_m = float(st.session_state.get("Inc_Monthly", 0.0))
-        
-        current_w, current_b1, current_b2, current_m = inc_w, inc_b1, inc_b2, inc_m
+        # PRIMARY INLINE AUTO-CONVERTER
+        if "last_p_freq" not in st.session_state:
+            st.session_state.last_p_freq = saved_freq
+            
+        if p_salary_type != st.session_state.last_p_freq:
+            old_freq = st.session_state.last_p_freq
+            m_val = 0.0
+            if old_freq == "Weekly":
+                m_val = st.session_state.p_inc_w * 4
+            elif old_freq == "Bi-Monthly":
+                m_val = st.session_state.p_inc_b1 + st.session_state.p_inc_b2
+            else:
+                m_val = st.session_state.p_inc_m
+                
+            if p_salary_type == "Weekly":
+                st.session_state.p_inc_w = m_val / 4
+            elif p_salary_type == "Bi-Monthly":
+                st.session_state.p_inc_b1 = m_val / 2
+                st.session_state.p_inc_b2 = m_val / 2
+            else:
+                st.session_state.p_inc_m = m_val
+                
+            st.session_state.last_p_freq = p_salary_type
+            st.rerun()
 
         if p_salary_type == "Weekly":
             with st.expander("📝 Enter Weekly Pay", expanded=True):
-                current_w = st.number_input("Average Weekly Net (₱)", value=inc_w, min_value=0.0, step=500.0, key="p_inc_w")
+                current_w = st.number_input("Average Weekly Net (₱)", min_value=0.0, step=500.0, key="p_inc_w")
                 p_base_salary = current_w * 4 
         elif p_salary_type == "Bi-Monthly":
             with st.expander("📝 Enter Bi-Monthly Paychecks", expanded=True):
-                current_b1 = st.number_input("1st Paycheck (₱)", value=inc_b1, min_value=0.0, step=1000.0, key="p_inc_b1")
-                current_b2 = st.number_input("2nd Paycheck (₱)", value=inc_b2, min_value=0.0, step=1000.0, key="p_inc_b2")
+                current_b1 = st.number_input("1st Paycheck (₱)", min_value=0.0, step=1000.0, key="p_inc_b1")
+                current_b2 = st.number_input("2nd Paycheck (₱)", min_value=0.0, step=1000.0, key="p_inc_b2")
                 p_base_salary = current_b1 + current_b2
         else:
             with st.expander("📝 Enter Monthly Salary", expanded=True):
-                current_m = st.number_input("Total Monthly Net (₱)", value=inc_m, min_value=0.0, step=1000.0, key="p_inc_m")
+                current_m = st.number_input("Total Monthly Net (₱)", min_value=0.0, step=1000.0, key="p_inc_m")
                 p_base_salary = current_m
 
     # --- SECONDARY INCOME ---
@@ -223,25 +252,43 @@ with st.sidebar:
         s_freq_idx = ["Weekly", "Bi-Monthly", "Monthly"].index(s_saved_freq)
         s_salary_type = st.radio("Pay Frequency:", ["Weekly", "Bi-Monthly", "Monthly"], index=s_freq_idx, key="s_freq")
         
-        s_inc_w = float(st.session_state.get("S_Inc_Weekly", 0.0))
-        s_inc_b1 = float(st.session_state.get("S_Inc_BiMonth_1", 0.0))
-        s_inc_b2 = float(st.session_state.get("S_Inc_BiMonth_2", 0.0))
-        s_inc_m = float(st.session_state.get("S_Inc_Monthly", 0.0))
-        
-        s_current_w, s_current_b1, s_current_b2, s_current_m = s_inc_w, s_inc_b1, s_inc_b2, s_inc_m
+        # SECONDARY INLINE AUTO-CONVERTER
+        if "last_s_freq" not in st.session_state:
+            st.session_state.last_s_freq = s_saved_freq
+            
+        if s_salary_type != st.session_state.last_s_freq:
+            old_freq = st.session_state.last_s_freq
+            m_val = 0.0
+            if old_freq == "Weekly":
+                m_val = st.session_state.s_inc_w * 4
+            elif old_freq == "Bi-Monthly":
+                m_val = st.session_state.s_inc_b1 + st.session_state.s_inc_b2
+            else:
+                m_val = st.session_state.s_inc_m
+                
+            if s_salary_type == "Weekly":
+                st.session_state.s_inc_w = m_val / 4
+            elif s_salary_type == "Bi-Monthly":
+                st.session_state.s_inc_b1 = m_val / 2
+                st.session_state.s_inc_b2 = m_val / 2
+            else:
+                st.session_state.s_inc_m = m_val
+                
+            st.session_state.last_s_freq = s_salary_type
+            st.rerun()
 
         if s_salary_type == "Weekly":
             with st.expander("📝 Enter Weekly Pay", expanded=True):
-                s_current_w = st.number_input("Average Weekly Net (₱)", value=s_inc_w, min_value=0.0, step=500.0, key="s_inc_w")
+                s_current_w = st.number_input("Average Weekly Net (₱)", min_value=0.0, step=500.0, key="s_inc_w")
                 s_base_salary = s_current_w * 4 
         elif s_salary_type == "Bi-Monthly":
             with st.expander("📝 Enter Bi-Monthly Paychecks", expanded=True):
-                s_current_b1 = st.number_input("1st Paycheck (₱)", value=s_inc_b1, min_value=0.0, step=1000.0, key="s_inc_b1")
-                s_current_b2 = st.number_input("2nd Paycheck (₱)", value=s_inc_b2, min_value=0.0, step=1000.0, key="s_inc_b2")
+                s_current_b1 = st.number_input("1st Paycheck (₱)", min_value=0.0, step=1000.0, key="s_inc_b1")
+                s_current_b2 = st.number_input("2nd Paycheck (₱)", min_value=0.0, step=1000.0, key="s_inc_b2")
                 s_base_salary = s_current_b1 + s_current_b2
         else:
             with st.expander("📝 Enter Monthly Salary", expanded=True):
-                s_current_m = st.number_input("Total Monthly Net (₱)", value=s_inc_m, min_value=0.0, step=1000.0, key="s_inc_m")
+                s_current_m = st.number_input("Total Monthly Net (₱)", min_value=0.0, step=1000.0, key="s_inc_m")
                 s_base_salary = s_current_m
 
     # Global Side Hustle applies to the household
@@ -267,37 +314,37 @@ with st.sidebar:
                 if col not in users_db.columns:
                     users_db[col] = 0.0 if "Frequency" not in col else "Monthly"
             
-            # Save Primary
+            # Save Primary directly from the UI state
             users_db.at[row_idx, "Pay_Frequency"] = p_salary_type
-            users_db.at[row_idx, "Inc_Weekly"] = current_w
-            users_db.at[row_idx, "Inc_BiMonth_1"] = current_b1
-            users_db.at[row_idx, "Inc_BiMonth_2"] = current_b2
-            users_db.at[row_idx, "Inc_Monthly"] = current_m
+            users_db.at[row_idx, "Inc_Weekly"] = st.session_state.p_inc_w
+            users_db.at[row_idx, "Inc_BiMonth_1"] = st.session_state.p_inc_b1
+            users_db.at[row_idx, "Inc_BiMonth_2"] = st.session_state.p_inc_b2
+            users_db.at[row_idx, "Inc_Monthly"] = st.session_state.p_inc_m
             
-            # Save Secondary
+            # Save Secondary directly from the UI state
             users_db.at[row_idx, "S_Pay_Frequency"] = s_salary_type
-            users_db.at[row_idx, "S_Inc_Weekly"] = s_current_w
-            users_db.at[row_idx, "S_Inc_BiMonth_1"] = s_current_b1
-            users_db.at[row_idx, "S_Inc_BiMonth_2"] = s_current_b2
-            users_db.at[row_idx, "S_Inc_Monthly"] = s_current_m
+            users_db.at[row_idx, "S_Inc_Weekly"] = st.session_state.s_inc_w
+            users_db.at[row_idx, "S_Inc_BiMonth_1"] = st.session_state.s_inc_b1
+            users_db.at[row_idx, "S_Inc_BiMonth_2"] = st.session_state.s_inc_b2
+            users_db.at[row_idx, "S_Inc_Monthly"] = st.session_state.s_inc_m
             
             # Save Global
             users_db.at[row_idx, "Side_Hustle"] = side_hustle
             
             conn.update(worksheet="Users", data=users_db)
             
-            # Update session state
+            # Update background session state to match
             st.session_state["Pay_Frequency"] = p_salary_type
-            st.session_state["Inc_Weekly"] = current_w
-            st.session_state["Inc_BiMonth_1"] = current_b1
-            st.session_state["Inc_BiMonth_2"] = current_b2
-            st.session_state["Inc_Monthly"] = current_m
+            st.session_state["Inc_Weekly"] = st.session_state.p_inc_w
+            st.session_state["Inc_BiMonth_1"] = st.session_state.p_inc_b1
+            st.session_state["Inc_BiMonth_2"] = st.session_state.p_inc_b2
+            st.session_state["Inc_Monthly"] = st.session_state.p_inc_m
             
             st.session_state["S_Pay_Frequency"] = s_salary_type
-            st.session_state["S_Inc_Weekly"] = s_current_w
-            st.session_state["S_Inc_BiMonth_1"] = s_current_b1
-            st.session_state["S_Inc_BiMonth_2"] = s_current_b2
-            st.session_state["S_Inc_Monthly"] = s_current_m
+            st.session_state["S_Inc_Weekly"] = st.session_state.s_inc_w
+            st.session_state["S_Inc_BiMonth_1"] = st.session_state.s_inc_b1
+            st.session_state["S_Inc_BiMonth_2"] = st.session_state.s_inc_b2
+            st.session_state["S_Inc_Monthly"] = st.session_state.s_inc_m
             
             st.session_state["Side_Hustle"] = side_hustle
             
@@ -386,7 +433,6 @@ month_records = global_db[
 modes_used = month_records["Cycle_Mode"].dropna().unique()
 active_mode = modes_used[0] if len(modes_used) > 0 else None
 
-# The Engine: Detects a mismatch and quietly modifies the DB before the UI loads
 if active_mode and cycle_type != active_mode:
     if active_mode == "Monthly" and cycle_type == "Bi-Monthly":
         st.toast("🔄 Auto-distributing Monthly data to Bi-Monthly...")
@@ -453,7 +499,7 @@ if active_mode and cycle_type != active_mode:
 
 
 # ==========================================
-# --- 4. THE STATIC CYCLE LEDGER ---
+# --- 4. THE TUCKED CYCLE LEDGER ---
 # ==========================================
 global_db = conn.read(worksheet="Sheet1", ttl=600).dropna(how="all")
 global_db["Date"] = pd.to_datetime(global_db["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
@@ -502,42 +548,43 @@ if st.session_state.get("loaded_date_range") != (start_date, end_date):
 st.divider()
 st.subheader(f"🧾 {selected_bucket_name} Ledger")
 
-col1, col2 = st.columns(2)
-with col1:
-    st.write("**🏡 Core Living**")
-    st.number_input("🏠 Rent / Mortgage", step=500.0, key="c_Hou")
-    st.number_input("⚡ Electricity", step=500.0, key="c_Ele")
-    st.number_input("💧 Water", step=100.0, key="c_Wat")
-    st.number_input("🌐 Internet", step=100.0, key="c_Int")
-    st.number_input("🛒 Groceries", step=500.0, key="c_Gro")
-    st.number_input("⚙️ Business Ops", step=500.0, key="c_Bus")
+# --- CATEGORY EXPANDERS ---
+with st.expander("🏡 Core Living", expanded=True): 
+    ec1, ec2 = st.columns(2)
+    with ec1:
+        st.number_input("🏠 Rent / Mortgage", step=500.0, key="c_Hou")
+        st.number_input("⚡ Electricity", step=500.0, key="c_Ele")
+        st.number_input("💧 Water", step=100.0, key="c_Wat")
+    with ec2:
+        st.number_input("🌐 Internet", step=100.0, key="c_Int")
+        st.number_input("🛒 Groceries", step=500.0, key="c_Gro")
+        st.number_input("⚙️ Business Ops", step=500.0, key="c_Bus")
 
-with col2:
-    st.write("**💳 Debt, Subs & Lifestyle**")
-    st.number_input("🚘 Car Payment", step=1000.0, key="c_Car")
-    st.number_input("💳 Credit Cards", step=500.0, key="c_Cre")
-    st.number_input("📺 Subscriptions", step=100.0, key="c_Sub")
-    st.number_input("📈 Investments", step=500.0, key="c_Inv")
-    st.number_input("🚗 Gas & Auto", step=500.0, key="c_Tra")
-    st.number_input("🍔 Dining Out", step=500.0, key="c_Lei")
-    
-st.write("")
-st.write("**💰 Extra / Unexpected Income**")
-st.number_input("Extra Income Amount", step=500.0, key="c_Ext")
+with st.expander("💳 Debt, Subs & Lifestyle"):
+    dc1, dc2 = st.columns(2)
+    with dc1:
+        st.number_input("🚘 Car Payment", step=1000.0, key="c_Car")
+        st.number_input("💳 Credit Cards", step=500.0, key="c_Cre")
+        st.number_input("📺 Subscriptions", step=100.0, key="c_Sub")
+    with dc2:
+        st.number_input("📈 Investments", step=500.0, key="c_Inv")
+        st.number_input("🚗 Gas & Auto", step=500.0, key="c_Tra")
+        st.number_input("🍔 Dining Out", step=500.0, key="c_Lei")
 
-st.write("---")
-st.write("**🚨 Emergency Funds (Itemized)**")
+with st.expander("💰 Extra / Unexpected Income"):
+    st.number_input("Extra Income Amount", step=500.0, key="c_Ext")
 
-for i in range(st.session_state.emg_count):
-    col_d, col_a = st.columns([2, 1])
-    with col_d:
-        st.text_input("Description", key=f"c_Emg_desc_{i}", placeholder="e.g. Medical Bill, Navara Repair...", label_visibility="collapsed" if i > 0 else "visible")
-    with col_a:
-        st.number_input("Amount", step=500.0, key=f"c_Emg_amt_{i}", value=None, label_visibility="collapsed" if i > 0 else "visible")
+with st.expander("🚨 Emergency Funds (Itemized)"):
+    for i in range(st.session_state.emg_count):
+        col_d, col_a = st.columns([2, 1])
+        with col_d:
+            st.text_input("Description", key=f"c_Emg_desc_{i}", placeholder="e.g. Medical Bill, Navara Repair...", label_visibility="collapsed" if i > 0 else "visible")
+        with col_a:
+            st.number_input("Amount", step=500.0, key=f"c_Emg_amt_{i}", value=None, label_visibility="collapsed" if i > 0 else "visible")
 
-if st.button("➕ Add Emergency Expense"):
-    st.session_state.emg_count += 1
-    st.rerun()
+    if st.button("➕ Add Emergency Expense"):
+        st.session_state.emg_count += 1
+        st.rerun()
 
 st.write("")
 
