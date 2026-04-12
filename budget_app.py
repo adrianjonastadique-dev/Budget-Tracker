@@ -175,6 +175,7 @@ if not st.session_state.budget_auth:
 # --- MULTI-DEVICE & PAYWALL SECURITY ---
 # ==========================================
 users_db = conn.read(worksheet="Users", ttl=600)
+user_match = users_db[users_db["Username"].astype(str) == st.session_state.username]
 payment_url = f"https://borie2.lemonsqueezy.com/checkout/buy/1e352074-2065-4784-a32f-093f28dc9e4a?checkout[custom][username]={st.session_state.username}"
 
 if not user_match.empty:
