@@ -170,6 +170,7 @@ if not st.session_state.budget_auth:
                 st.warning("⚠️ Please fill out all fields.")
     st.stop()
 
+
 # ==========================================
 # --- MULTI-DEVICE & PAYWALL SECURITY ---
 # ==========================================
@@ -200,22 +201,21 @@ if not user_match.empty:
         
     days_used = (datetime.date.today() - join_date).days
     
-    # --- LEMON SQUEEZY INTEGRATION ---
-    # Replace the base URL with your actual Lemon Squeezy product checkout link
-    # We append ?checkout[custom][username]= so your Make.com webhook knows who paid!
-    lemon_squeezy_url = f"https://borie2.lemonsqueezy.com/checkout/buy/1e352074-2065-4784-a32f-093f28dc9e4a"
+    # --- MAKE.COM WEBHOOK / PAYMENT LINK INTEGRATION ---
+    # Replace this URL with your actual payment form or gateway link
+    # The ?username= parameter ensures Make.com knows who is paying
+    payment_url = f"https://hook.eu1.make.com/dj34cq7n80olu7oguf9aaf0tsm2bmlgr"
     
     if not is_paid:
         if days_used <= 7:
             st.sidebar.warning(f"⏳ Free Trial: {7 - days_used} days remaining")
-            st.sidebar.link_button("💎 Upgrade to Premium", lemon_squeezy_url, use_container_width=True)
+            st.sidebar.link_button("💎 Upgrade to Premium", payment_url, use_container_width=True)
         else:
             st.title("🔒 Free Trial Expired")
             st.warning("Your 7-day free trial has ended. Please upgrade to a Premium Account to continue using the Smart Finance Tracker.")
             
-            # The massive checkout button for locked users
-            st.link_button("💎 Secure Your Access Now", lemon_squeezy_url, type="primary")
-            st.write("*(Note: Once payment is complete, it may take up to a minute for the system to process. Please refresh the page after completing payment.)*")
+            st.link_button("💎 Secure Your Access Now", payment_url, type="primary")
+            st.write("*(Note: Once payment is complete, it may take a moment for the background system to process. Please refresh the page after completing your transaction.)*")
             
             st.write("---")
             if st.button("Log Out"):
