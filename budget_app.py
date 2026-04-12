@@ -200,12 +200,24 @@ if not user_match.empty:
         
     days_used = (datetime.date.today() - join_date).days
     
+    # --- LEMON SQUEEZY INTEGRATION ---
+    # Replace the base URL with your actual Lemon Squeezy product checkout link
+    # We append ?checkout[custom][username]= so your Make.com webhook knows who paid!
+    lemon_squeezy_url = f"https://your-store.lemonsqueezy.com/checkout/buy/your-product-id?checkout[custom][username]={st.session_state.username}"
+    
     if not is_paid:
         if days_used <= 7:
             st.sidebar.warning(f"⏳ Free Trial: {7 - days_used} days remaining")
+            st.sidebar.link_button("💎 Upgrade to Premium", lemon_squeezy_url, use_container_width=True)
         else:
             st.title("🔒 Free Trial Expired")
             st.warning("Your 7-day free trial has ended. Please upgrade to a Premium Account to continue using the Smart Finance Tracker.")
+            
+            # The massive checkout button for locked users
+            st.link_button("💎 Secure Your Access Now", lemon_squeezy_url, type="primary")
+            st.write("*(Note: Once payment is complete, it may take up to a minute for the system to process. Please refresh the page after completing payment.)*")
+            
+            st.write("---")
             if st.button("Log Out"):
                 st.session_state.budget_auth = False
                 st.rerun()
