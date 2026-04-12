@@ -1,15 +1,17 @@
 [theme]
-# Apple-style Blue accent color
-primaryColor = "#007AFF"
+# The main accent color (used for buttons, active tabs, and sliders)
+# We are using a crisp, retro LCD green here.
+primaryColor = "#00E676" 
 
-# Clean White main background
-backgroundColor = "#FFFFFF"
+# The main background color (deep, matte black)
+backgroundColor = "#0E1117" 
 
-# Light Gray sidebar (consistent with macOS/iOS)
-secondaryBackgroundColor = "#F5F5F7"
+# The background for the sidebar and expander boxes 
+# (Slightly lighter to mimic raised calculator panels/buttons)
+secondaryBackgroundColor = "#1A1C23" 
 
-# Deep Black text for readability
-textColor = "#1D1D1F"
+# The main text color (crisp off-white for high contrast readability)
+textColor = "#E8EAED" 
 
-# Modern sans-serif font
-font = "sans serif"
+# The font style (Crucial for the calculator look and perfect number alignment)
+font = "monospace"
