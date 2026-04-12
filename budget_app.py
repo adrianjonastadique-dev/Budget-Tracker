@@ -142,7 +142,7 @@ if not st.session_state.budget_auth:
                                 "Password": new_pwd.strip(),
                                 "Session_ID": "",
                                 "Join_Date": datetime.date.today().strftime("%Y-%m-%d"),
-                                "IsPaid": False,
+                                "IsPaid": False,  # <--- Setting default to trial
                                 "Pay_Frequency": "Monthly",
                                 "Inc_Weekly": 0.0,
                                 "Inc_BiMonth_1": 0.0,
@@ -169,7 +169,6 @@ if not st.session_state.budget_auth:
             else:
                 st.warning("⚠️ Please fill out all fields.")
     st.stop()
-
 
 # ==========================================
 # --- MULTI-DEVICE & PAYWALL SECURITY ---
