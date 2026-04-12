@@ -203,7 +203,7 @@ if not user_match.empty:
     # --- LEMON SQUEEZY INTEGRATION ---
     # Replace the base URL with your actual Lemon Squeezy product checkout link
     # We append ?checkout[custom][username]= so your Make.com webhook knows who paid!
-    lemon_squeezy_url = f"https://your-store.lemonsqueezy.com/checkout/buy/your-product-id?checkout[custom][username]={st.session_state.username}"
+    lemon_squeezy_url = f"https://borie2.lemonsqueezy.com/checkout/buy/1e352074-2065-4784-a32f-093f28dc9e4a"
     
     if not is_paid:
         if days_used <= 7:
