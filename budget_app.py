@@ -204,7 +204,7 @@ if not user_match.empty:
     # --- MAKE.COM WEBHOOK / PAYMENT LINK INTEGRATION ---
     # Replace this URL with your actual payment form or gateway link
     # The ?username= parameter ensures Make.com knows who is paying
-    payment_url = f"https://hook.eu1.make.com/dj34cq7n80olu7oguf9aaf0tsm2bmlgr"
+    payment_url = f"https://borie2.lemonsqueezy.com/checkout/buy/1e352074-2065-4784-a32f-093f28dc9e4a"
     
     if not is_paid:
         if days_used <= 7:
