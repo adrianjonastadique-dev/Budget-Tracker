@@ -142,6 +142,7 @@ if not st.session_state.budget_auth:
                                 "Password": new_pwd.strip(),
                                 "Session_ID": "",
                                 "Join_Date": datetime.date.today().strftime("%Y-%m-%d"),
+                                "IsPaid": False,
                                 "Pay_Frequency": "Monthly",
                                 "Inc_Weekly": 0.0,
                                 "Inc_BiMonth_1": 0.0,
@@ -168,6 +169,51 @@ if not st.session_state.budget_auth:
             else:
                 st.warning("⚠️ Please fill out all fields.")
     st.stop()
+
+
+# ==========================================
+# --- MULTI-DEVICE & PAYWALL SECURITY ---
+# ==========================================
+users_db = conn.read(worksheet="Users", ttl=600)
+user_match = users_db[users_db["Username"].astype(str) == st.session_state.username]
+
+if not user_match.empty:
+    # 1. Multi-Device Kick (Session ID Check)
+    db_session = str(user_match.iloc[0].get("Session_ID", ""))
+    if db_session and db_session != st.session_state.get("session_id", ""):
+        st.session_state.budget_auth = False
+        st.error("⚠️ **Session Terminated:** Your account was logged into from another device.")
+        time.sleep(2)
+        st.rerun()
+        
+    # 2. Paywall & Trial Logic
+    is_paid = user_match.iloc[0].get("IsPaid", False)
+    if str(is_paid).strip().upper() == "TRUE" or is_paid is True:
+        is_paid = True
+    else:
+        is_paid = False
+        
+    join_date_str = user_match.iloc[0].get("Join_Date", str(datetime.date.today()))
+    try:
+        join_date = datetime.datetime.strptime(str(join_date_str), "%Y-%m-%d").date()
+    except:
+        join_date = datetime.date.today()
+        
+    days_used = (datetime.date.today() - join_date).days
+    
+    if not is_paid:
+        if days_used <= 7:
+            st.sidebar.warning(f"⏳ Free Trial: {7 - days_used} days remaining")
+        else:
+            st.title("🔒 Free Trial Expired")
+            st.warning("Your 7-day free trial has ended. Please upgrade to a Premium Account to continue using the Smart Finance Tracker.")
+            if st.button("Log Out"):
+                st.session_state.budget_auth = False
+                st.rerun()
+            st.stop()
+    else:
+        st.sidebar.success("🌟 Premium Account")
+
 
 # ==========================================
 # --- 1. THE PERMANENT INCOME ENGINE ---
